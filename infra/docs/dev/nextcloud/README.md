@@ -114,6 +114,7 @@ infra/
 └── srcs/
     └── dev/
         └── nextcloud/
+            ├── .env.example
             ├── compose.yaml
             │
             ├── configs/
@@ -126,18 +127,14 @@ infra/
 | 구성 요소 | 역할 |
 |---|---|
 | `README.md` | 서버 아키텍처 및 관리 방법 |
+| [`.env.example`](../../../srcs/dev/nextcloud/.env.example) | 이미지 태그와 초기 관리자 계정명 예제 |
 | `compose.yaml` | 컨테이너·볼륨·네트워크 설정 |
 | `configs/` | 서비스 관련 설정 |
 | `scripts/` | 실행 및 운영 자동화 |
 | `secrets/` | 인증 정보 관리 (Git 제외) |
 
-실제 인증 정보 파일은 서버 로컬에서 관리한다.
-
-루트 `.gitignore`에 다음 항목을 추가한다.
-
-```gitignore
-infra/srcs/dev/nextcloud/secrets/
-```
+서버 초기 설정 시 `.env.example`을 같은 디렉터리의 `.env`로 복사하고 이미지 태그와 초기 관리자 계정명을 지정한다.
+비밀번호는 `secrets/` 아래의 별도 파일에 저장한다. `.env`와 `secrets/`는 [저장소의 `.gitignore`](../../../../.gitignore)로 Git 추적에서 제외한다.
 
 ---
 
