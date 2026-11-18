@@ -34,11 +34,11 @@ Windows 10의 WSL2 환경에서 Docker Compose를 사용하여 Nextcloud와 Mari
 |---|---|
 | Host OS | Windows 10 |
 | Linux Environment | WSL2 Ubuntu |
-| Container Runtime | Docker Engine |
-| Container Management | Docker Compose |
-| Application | Nextcloud |
-| Web Server | Nextcloud 공식 Apache 이미지 |
-| Database | MariaDB |
+| Container Runtime | Docker Engine (설치 완료 전제) |
+| Container Management | Docker Compose 플러그인 (설치 완료 전제) |
+| Application | Nextcloud 34.0.6 |
+| Web Server | Nextcloud 공식 이미지 `nextcloud:34.0.6-apache` |
+| Database | MariaDB 11.8.10 LTS 공식 이미지 `mariadb:11.8.10` |
 | Storage | Docker Named Volume |
 | External Access | Cloudflare Quick Tunnel |
 | External Protocol | HTTPS |
@@ -46,7 +46,9 @@ Windows 10의 WSL2 환경에서 Docker Compose를 사용하여 Nextcloud와 Mari
 | User Authentication | Nextcloud 계정 및 비밀번호 |
 | Management | 인프라 담당 |
 
-Nextcloud 및 MariaDB의 세부 이미지 버전은 호환성을 확인하여 확정한다.
+WSL2 Ubuntu에서 `docker compose`로 Nextcloud 웹, MariaDB, Cron을 각각의 컨테이너에서 실행한다. 웹과 Cron은 같은 Nextcloud 이미지 버전을 사용한다.
+
+MariaDB 11.8은 Nextcloud 34의 권장 데이터베이스 버전이다. `mariadb:11.8.10` 공식 이미지 태그는 2026-11-18 조회에서 확인되지 않았다. 태그가 게시되면 이미지 다운로드와 실제 기동을 검증한다.
 
 ### 2.2 전체 아키텍처
 
@@ -178,12 +180,12 @@ infra/srcs/dev/nextcloud/secrets/
 
 `infra/srcs/dev/nextcloud/compose.yaml`
 
-다음은 주요 구성 방식을 나타내는 예시다. 실제 적용 전 이미지 버전, 인증 정보 파일 및 컨테이너 권한을 검증한다.
+다음은 주요 구성 방식을 나타내는 예시다. 실제 적용 전 공식 이미지 태그의 다운로드 가능 여부, 인증 정보 파일 및 컨테이너 권한을 검증한다.
 
 ```yaml
 services:
   db:
-    image: mariadb:lts
+    image: mariadb:11.8.10
     restart: unless-stopped
 
     command:
@@ -210,7 +212,7 @@ services:
       - no-new-privileges:true
 
   nextcloud:
-    image: nextcloud:apache
+    image: nextcloud:34.0.6-apache
     restart: unless-stopped
 
     ports:
@@ -242,7 +244,7 @@ services:
       - no-new-privileges:true
 
   cron:
-    image: nextcloud:apache
+    image: nextcloud:34.0.6-apache
     restart: unless-stopped
 
     entrypoint: /cron.sh
@@ -598,7 +600,7 @@ Named Volume을 유지하므로 일반 종료 시 데이터가 삭제되지 않�
 
 ### 14.1 인프라 담당
 
-- Docker 및 Docker Compose 환경 구성
+- Docker Engine 및 Docker Compose 동작 확인
 - Nextcloud·MariaDB 컨테이너 관리
 - Docker 네트워크 및 내부 포트 관리
 - Docker Named Volume 구성
@@ -621,8 +623,6 @@ Named Volume을 유지하므로 일반 종료 시 데이터가 삭제되지 않�
 
 | 항목 | 내용 |
 |---|---|
-| Nextcloud 세부 버전 | 호환성 확인 후 고정 |
-| MariaDB 세부 버전 | 호환성 확인 후 고정 |
 | 사용자별 폴더 | 팀원 요구사항에 따라 구성 |
 | 파일 업로드 제한 | 테스트 파일 크기에 따라 결정 |
 | 파일 보관 기간 | 임시 파일 정리 기준 |
@@ -649,6 +649,8 @@ Named Volume을 유지하므로 일반 종료 시 데이터가 삭제되지 않�
 ## 17. 참고 문서
 
 - [Nextcloud Docker](https://github.com/nextcloud/docker)
+- [Nextcloud 34 시스템 요구사항](https://github.com/nextcloud/documentation/blob/stable34/admin_manual/installation/system_requirements.rst)
+- [MariaDB 공식 이미지 태그](https://hub.docker.com/_/mariadb/tags)
 - [Nextcloud Database Configuration](https://docs.nextcloud.com/server/stable/admin_manual/configuration_database/linux_database_configuration.html)
 - [Docker Compose Networking](https://docs.docker.com/compose/how-tos/networking/)
 - [Docker Port Publishing](https://docs.docker.com/get-started/docker-concepts/running-containers/publishing-ports/)
