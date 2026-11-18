@@ -173,113 +173,13 @@ infra/
 | `db` | MariaDB 데이터베이스 | `db_data` |
 | `cron` | Nextcloud 백그라운드 작업 | Nextcloud Volume 공유 |
 
-### 5.2 Compose 구성 예시
+### 5.2 Compose 구성
 
-`infra/srcs/dev/nextcloud/compose.yaml`
+[Compose 설정 파일](../../../srcs/dev/nextcloud/compose.yaml)은 `.env`에서 이미지 태그와 초기 관리자 계정명을 읽고, `secrets/`의 파일을 컨테이너에 전달한다.
 
-다음은 주요 구성 방식을 나타내는 예시다. 실제 적용 전 공식 이미지 태그의 다운로드 가능 여부, 인증 정보 파일 및 컨테이너 권한을 검증한다.
+MariaDB가 연결을 받을 수 있고 InnoDB 초기화가 끝나면 Nextcloud 웹을 시작한다. 웹의 `/status.php`에서 설치 완료와 정상 상태가 확인되면 Cron을 시작한다.
 
-```yaml
-services:
-  db:
-    image: mariadb:11.8.10
-    restart: unless-stopped
-
-    command:
-      - "--transaction-isolation=READ-COMMITTED"
-      - "--port=3311"
-
-    environment:
-      MARIADB_DATABASE: nextcloud
-      MARIADB_USER: nextcloud
-      MARIADB_PASSWORD_FILE: /run/secrets/db_password
-      MARIADB_ROOT_PASSWORD_FILE: /run/secrets/db_root_password
-
-    secrets:
-      - db_password
-      - db_root_password
-
-    volumes:
-      - db_data:/var/lib/mysql
-
-    networks:
-      - backend
-
-    security_opt:
-      - no-new-privileges:true
-
-  nextcloud:
-    image: nextcloud:34.0.6-apache
-    restart: unless-stopped
-
-    ports:
-      - "127.0.0.1:8080:80"
-
-    environment:
-      MYSQL_HOST: "db:3311"
-      MYSQL_DATABASE: nextcloud
-      MYSQL_USER: nextcloud
-      MYSQL_PASSWORD_FILE: /run/secrets/db_password
-      NEXTCLOUD_ADMIN_USER: admin
-      NEXTCLOUD_ADMIN_PASSWORD_FILE: /run/secrets/admin_password
-
-    secrets:
-      - db_password
-      - admin_password
-
-    volumes:
-      - nextcloud_data:/var/www/html
-
-    networks:
-      - frontend
-      - backend
-
-    depends_on:
-      - db
-
-    security_opt:
-      - no-new-privileges:true
-
-  cron:
-    image: nextcloud:34.0.6-apache
-    restart: unless-stopped
-
-    entrypoint: /cron.sh
-
-    volumes:
-      - nextcloud_data:/var/www/html
-
-    networks:
-      - backend
-
-    depends_on:
-      - nextcloud
-
-    security_opt:
-      - no-new-privileges:true
-
-networks:
-  frontend:
-    driver: bridge
-
-  backend:
-    driver: bridge
-    internal: true
-
-volumes:
-  nextcloud_data:
-  db_data:
-
-secrets:
-  db_password:
-    file: ./secrets/db_password.txt
-
-  db_root_password:
-    file: ./secrets/db_root_password.txt
-
-  admin_password:
-    file: ./secrets/admin_password.txt
-```
+`127.0.0.1:8080` 또는 `localhost:8080`에서 초기 접속을 확인한다. 외부 접속에 사용할 주소는 터널을 설정할 때 신뢰 도메인에 추가한다.
 
 MariaDB는 `--port=3311` 옵션을 통해 실제 수신 포트를 변경한다.
 
