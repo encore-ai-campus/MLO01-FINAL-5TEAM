@@ -1,0 +1,63 @@
+name: team5-web
+services:
+  db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: local_cart
+      POSTGRES_USER: cart_app
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - cart_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "cart_app", "-d", "local_cart"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:8.2-alpine
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "always"]
+    volumes:
+      - cart_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 2s
+      retries: 12
+
+  web:
+    image: team5-web:dev
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${WEB_BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-8005}:8000"
+    environment: &cart_environment
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,[::1]}
+      REDIS_URL: redis://redis:6379/0
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?set DJANGO_SECRET_KEY}
+      POSTGRES_HOST: db
+      POSTGRES_DB: local_cart
+      POSTGRES_USER: cart_app
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/api/cart/', timeout=3).close()"]
+      interval: 10s
+      timeout: 4s
+      retries: 8
+      start_period: 10s
+
+  worker:
+    image: team5-web:dev
+    pull_policy: never
+    command: ["python", "manage.py", "run_cart_worker"]
+    environment: *cart_environment
+    depends_on:
+      web:
+        condition: service_healthy
+    restart: on-failure
+
+volumes:
+  cart_data:
+  cart_redis:

@@ -1,0 +1,98 @@
+{% load humanize %}
+<section id="store-cart-panel" class="cart-panel" aria-labelledby="store-cart-title" tabindex="-1">
+  <div class="cart-list-box">
+    <div class="cart-heading">
+      <div class="cart-title-wrap">
+        <h2 id="store-cart-title">장바구니</h2>
+        <span class="cart-quantity" id="store-cart-quantity">{{ cart_quantity|intcomma }}개</span>
+      </div>
+      <div class="cart-heading-meta">
+        <button type="button" id="store-clear-cart" class="cart-clear-btn"{% if not cart_lines %} hidden{% endif %}>전체삭제</button>
+        <button type="button" id="store-sheet-close" class="sheet-close-btn" aria-label="장바구니 닫기">닫기 ✕</button>
+      </div>
+    </div>
+
+    <div class="shipping-progress-card" aria-live="polite">
+      <div class="shipping-progress-head">
+        <p id="store-shipping-text" class="shipping-progress-text">
+          {% if shipping.is_free %}
+          <strong>무료배송 혜택이 적용되었습니다 ✓</strong>
+          {% else %}
+          <strong>{{ shipping.remaining|intcomma }}원</strong> 추가 시 <b>무료배송</b> (100,000원 이상 무료)
+          {% endif %}
+        </p>
+        <span id="store-shipping-pct" class="shipping-pct">{{ shipping.progress_pct }}%</span>
+      </div>
+      <div id="store-shipping-bar" class="shipping-track" role="progressbar" aria-label="무료배송 달성률" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ shipping.progress_pct }}">
+        <div id="store-shipping-fill" class="shipping-fill" style="width: {{ shipping.progress_pct }}%"></div>
+      </div>
+    </div>
+
+    <div class="cart-body">
+      <div id="store-cart-placeholder" class="cart-placeholder"{% if cart_lines %} hidden{% endif %}>
+        <span class="empty-art" aria-hidden="true"><span class="bag-icon"></span></span>
+        <p id="store-placeholder-title">장바구니가 비어 있습니다.</p>
+        <span id="store-placeholder-help" class="placeholder-help">상품의 담기 버튼을 눌러 장바구니에 담아 보세요.</span>
+        <button type="button" id="store-reload-cart" class="text-button" hidden>다시 불러오기</button>
+      </div>
+      <ul id="store-cart-items" class="cart-items" aria-label="담은 상품"{% if not cart_lines %} hidden{% endif %}>
+        {% for line in cart_lines %}
+        <li class="cart-item">
+          <div class="cart-item-info">
+            <div class="cart-item-top">
+              <div>
+                <a class="cart-item-name" href="{% url 'store-product' line.product.id %}">{{ line.product.label }}</a>
+                <span class="cart-unit-price">개당 {{ line.product.price|intcomma }}원</span>
+              </div>
+              <button class="remove-line-btn" type="button" data-remove="{{ line.product.id }}">담기 취소</button>
+            </div>
+            <div class="cart-item-controls">
+              <div class="qty-stepper">
+                <button class="qty-btn" type="button" data-dec="{{ line.product.id }}" aria-label="{{ line.product.label }} 수량 1 줄이기">−</button>
+                <input class="qty-input" type="number" min="0" max="99" value="{{ line.quantity }}" data-qty-input="{{ line.product.id }}" aria-label="{{ line.product.label }} 수량">
+                <button class="qty-btn" type="button" data-inc="{{ line.product.id }}" aria-label="{{ line.product.label }} 수량 1 늘리기">+</button>
+              </div>
+              <span class="cart-line-price">{{ line.subtotal|intcomma }}원</span>
+            </div>
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    <div id="store-pending-bar" class="pending-bar" hidden>
+      <p id="store-pending-message"></p>
+      <button type="button" id="store-retry-pending" class="text-button">같은 요청으로 다시 보내기</button>
+    </div>
+  </div>
+
+  <aside class="cart-order-box" aria-label="결제 예정 금액">
+    <h3 class="order-box-title">결제 예정 금액</h3>
+    <div class="cart-summary-breakdown">
+      <div class="summary-row">
+        <span>총 상품금액</span>
+        <strong><span id="store-cart-total">{{ cart_total|intcomma }}</span><span class="currency">원</span></strong>
+      </div>
+      <div class="summary-row">
+        <span>총 배송비</span>
+        <strong id="store-shipping-fee">{% if shipping.shipping_fee == 0 %}무료 (0원){% else %}+{{ shipping.shipping_fee|intcomma }}원{% endif %}</strong>
+      </div>
+      <div class="cart-total">
+        <span>총 결제예정금액</span>
+        <strong><span id="store-final-total">{{ shipping.final_total|intcomma }}</span><span class="currency">원</span></strong>
+      </div>
+    </div>
+
+    <div class="quick-checkout-section" aria-label="주문 및 간편결제">
+      <button type="button" id="store-guest-checkout" class="guest-checkout-btn" data-quick-pay="주문하기">
+        주문하기
+      </button>
+      <div class="quick-pay-grid">
+        <button type="button" class="quick-pay-btn npay" data-quick-pay="네이버페이"><span class="pay-badge">N</span>네이버페이</button>
+        <button type="button" class="quick-pay-btn kakaopay" data-quick-pay="카카오페이"><span class="pay-badge">K</span>카카오페이</button>
+        <button type="button" class="quick-pay-btn tosspay" data-quick-pay="토스페이"><span class="pay-badge">T</span>토스페이</button>
+      </div>
+      <p id="store-checkout-status" class="checkout-status" role="status" hidden></p>
+    </div>
+  </aside>
+</section>

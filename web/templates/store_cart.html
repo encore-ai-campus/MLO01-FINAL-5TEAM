@@ -1,0 +1,23 @@
+{% extends "store_base.html" %}
+{% block title %}장바구니{% endblock %}
+{% block content %}
+<div class="cart-page-header">
+  <h1 class="page-heading">장바구니</h1>
+  <ol class="cart-steps" aria-label="주문 진행 단계">
+    <li class="current"><strong>01</strong> 장바구니</li>
+    <li aria-hidden="true">›</li>
+    <li><strong>02</strong> 주문/결제</li>
+    <li aria-hidden="true">›</li>
+    <li><strong>03</strong> 주문완료</li>
+  </ol>
+</div>
+
+<div class="cart-page-body">
+  {% include "_store_cart_panel.html" %}
+  <div class="cart-continue-row">
+    <a class="back-link" href="{% url 'store-catalog' %}">← 상품 목록으로 계속 쇼핑하기</a>
+  </div>
+</div>
+{% endblock %}
+
+{% block sticky_thumb_zone %}{% endblock %}

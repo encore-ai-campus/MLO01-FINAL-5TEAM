@@ -1,0 +1,72 @@
+{% extends "store_base.html" %}{% load humanize %}
+{% block title %}{{ product.label }}{% endblock %}
+{% block structured_data %}
+<script type="application/ld+json">{{ json_ld|safe }}</script>
+{% endblock %}
+{% block content %}
+<nav class="breadcrumb" aria-label="카테고리 경로">
+  <a class="back-link" href="{% url 'store-catalog' %}">전체상품</a>
+  <span aria-hidden="true">›</span>
+  <span>{{ product.category }}</span>
+  <span aria-hidden="true">›</span>
+  <strong>{{ product.brand }}</strong>
+</nav>
+
+<article class="detail-layout" aria-labelledby="detail-title">
+  <div class="detail-info">
+    <p class="product-meta">{{ product.brand }}</p>
+    <h1 id="detail-title">{{ product.category }}</h1>
+
+    <div class="detail-price-box">
+      <span class="price-label">판매가</span>
+      <strong class="detail-final-price">{{ product.price|intcomma }}<span class="currency">원</span></strong>
+    </div>
+
+    <dl class="detail-specs">
+      <dt>배송비</dt><dd>3,000원 (100,000원 이상 구매 시 무료배송)</dd>
+      <dt>배송안내</dt><dd>택배배송 · 결제 완료 후 1~2일 이내 출고</dd>
+      <dt>상품코드</dt><dd><code>{{ product.id }}</code></dd>
+    </dl>
+
+    <div id="detail-cart-state" class="detail-cart-state" data-detail-product="{{ product.id }}"{% if not current_qty %} hidden{% endif %}>
+      <span class="detail-cart-label">장바구니에 담긴 수량</span>
+      <div class="cart-item-controls">
+        <div class="qty-stepper">
+          <button class="qty-btn" type="button" data-dec="{{ product.id }}" aria-label="{{ product.label }} 수량 1 줄이기">−</button>
+          <input class="qty-input" type="number" min="0" max="99" value="{{ current_qty|default:1 }}" data-qty-input="{{ product.id }}" aria-label="{{ product.label }} 수량">
+          <button class="qty-btn" type="button" data-inc="{{ product.id }}" aria-label="{{ product.label }} 수량 1 늘리기">+</button>
+        </div>
+        <button class="remove-line-btn" type="button" data-remove="{{ product.id }}">담기 취소</button>
+      </div>
+    </div>
+
+    <div class="detail-actions">
+      <button id="detail-add-btn" class="add-button" type="button" data-store-add="{{ product.id }}" data-default-label="장바구니 담기" aria-label="{{ product.label }} 장바구니 담기">
+        <span class="plus-icon" aria-hidden="true"></span><span data-add-label>장바구니 담기</span>
+      </button>
+      <a class="buy-now-link" href="{% url 'store-cart' %}">장바구니 바로가기</a>
+    </div>
+    <p id="add-status" class="detail-status" role="status"></p>
+  </div>
+</article>
+{% endblock %}
+
+{% block sticky_thumb_zone %}
+<aside class="thumb-sticky-bar pdp-sticky-cta" aria-label="하단 구매 바">
+  <div class="store-shell thumb-sticky-inner">
+    <div class="thumb-sticky-info">
+      <strong>{{ product.label }}</strong>
+      <span class="thumb-total">{{ product.price|intcomma }}원</span>
+      <span id="store-sticky-shipping" class="thumb-shipping">
+        {% if shipping.is_free %}무료배송{% else %}{{ shipping.remaining|intcomma }}원 추가 시 무료배송{% endif %}
+      </span>
+    </div>
+    <div class="thumb-sticky-actions">
+      <button class="add-button" type="button" data-store-add="{{ product.id }}" data-default-label="장바구니 담기" aria-label="{{ product.label }} 하단 담기">
+        <span class="plus-icon" aria-hidden="true"></span><span data-add-label>장바구니 담기</span>
+      </button>
+      <a href="{% url 'store-cart' %}" class="thumb-checkout-link">장바구니 (<b id="store-sticky-qty">{{ cart_quantity|intcomma }}</b>) →</a>
+    </div>
+  </div>
+</aside>
+{% endblock %}

@@ -1,0 +1,13 @@
+**
+!requirements.txt
+!manage.py
+!cartsite/
+!cartsite/**
+!store/
+!store/**
+!templates/
+!templates/**
+!static/
+!static/**
+**/__pycache__/
+**/*.pyc

@@ -1,0 +1,54 @@
+{% extends "store_base.html" %}{% load humanize %}
+{% block title %}전체상품{% endblock %}
+{% block structured_data %}
+<script type="application/ld+json">{{ json_ld|safe }}</script>
+{% endblock %}
+{% block content %}
+<section id="store-catalog" class="store-catalog" aria-labelledby="store-catalog-heading">
+  <div class="catalog-header">
+    <h1 id="store-catalog-heading">전체상품</h1>
+  </div>
+
+  <div class="plp-sticky-toolbar">
+    <div id="store-category-filters" class="category-filters" role="group" aria-label="상품 카테고리">
+      <button type="button" class="filter-button" aria-pressed="true">전체</button>
+    </div>
+    <div class="plp-toolbar-right">
+      <p id="store-product-count" class="product-count" aria-live="polite">총 {{ products|length }}개</p>
+      <div id="store-sort-chips" class="sort-chips" role="group" aria-label="상품 정렬">
+        <button type="button" class="sort-chip" data-sort="default" aria-pressed="true">기본순</button>
+        <button type="button" class="sort-chip" data-sort="price-asc" aria-pressed="false">낮은가격순</button>
+        <button type="button" class="sort-chip" data-sort="price-desc" aria-pressed="false">높은가격순</button>
+      </div>
+      <button type="button" id="store-view-toggle" class="view-toggle-btn" data-cols="4" aria-label="진열 형태 변경">리스트형</button>
+    </div>
+  </div>
+
+  <ul id="store-catalog-grid" class="product-grid" data-layout="4col">
+    {% for product in products %}
+    <li class="product-grid-item" data-product-id="{{ product.id }}" data-category="{{ product.category }}" data-price="{{ product.price }}">
+      <article class="product-card" data-product-id="{{ product.id }}" data-category="{{ product.category }}">
+        <div class="product-info">
+          <p class="product-meta">{{ product.brand }}</p>
+          <h2><a href="{% url 'store-product' product.id %}">{{ product.category }}</a></h2>
+          <p class="product-price"><strong>{{ product.price|intcomma }}</strong><span class="currency">원</span></p>
+        </div>
+        <button class="card-add-button" type="button" data-store-add="{{ product.id }}" data-default-label="담기" aria-label="{{ product.label }} 장바구니 담기">
+          <span class="plus-icon" aria-hidden="true"></span><span data-add-label>담기</span>
+        </button>
+      </article>
+    </li>
+    {% empty %}
+    <li>등록된 상품이 없습니다.</li>
+    {% endfor %}
+  </ul>
+</section>
+
+<div id="store-sheet-backdrop" class="sheet-backdrop" hidden></div>
+<section class="store-workspace" aria-label="장바구니 요약">
+  <div id="store-cart-sheet" class="cart-sheet" role="region" aria-label="장바구니">
+    <div class="sheet-handle-bar" aria-hidden="true"><span class="sheet-grabber"></span></div>
+    {% include "_store_cart_panel.html" %}
+  </div>
+</section>
+{% endblock %}
