@@ -1,0 +1,10 @@
+numpy>=2.0,<2.4
+pandas>=2.2,<3.1
+scipy==1.15.3
+scikit-learn==1.6.1
+lightgbm==4.6.0
+psutil==7.0.0
+pyarrow==26.0.1
+kafka-python==2.2.15
+redis==5.2.1
+duckdb==2.0.0

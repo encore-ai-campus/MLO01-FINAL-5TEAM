@@ -1,0 +1,41 @@
+dataset: local_spark/default/events_good
+checks:
+  - row_count:
+      name: nonempty_day
+      threshold:
+        must_be_greater_than: 0
+  - failed_rows:
+      name: event_identity_matches_source
+      expression: event_id <> concat(source, ':', cast(event_seq as string)) OR event_seq < 0
+columns:
+  - name: event_id
+    checks:
+      - missing:
+          name: event_id_present
+      - duplicate:
+          name: event_id_unique
+  - name: event_time
+    checks:
+      - missing:
+          name: event_time_present
+  - name: event_type
+    checks:
+      - invalid:
+          name: event_type_allowed
+          valid_values: [view, cart, purchase]
+  - name: source
+    checks:
+      - missing:
+          name: source_present
+  - name: event_seq
+    checks:
+      - missing:
+          name: event_seq_present
+  - name: user_id
+    checks:
+      - missing:
+          name: user_id_present
+  - name: product_id
+    checks:
+      - missing:
+          name: product_id_present

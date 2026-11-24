@@ -1,0 +1,93 @@
+x-kafka-env: &kafka-env
+  CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+  KAFKA_PROCESS_ROLES: broker,controller
+  KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093
+  KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+  KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+  KAFKA_LISTENERS: INTERNAL://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,HOST://0.0.0.0:39092
+  KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,HOST:PLAINTEXT,CONTROLLER:PLAINTEXT
+  KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+  KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+  KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+  KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'false'
+  KAFKA_HEAP_OPTS: -Xms256m -Xmx512m
+
+x-kafka: &kafka
+  image: apache/kafka:3.9.1
+  user: '0:0'
+  healthcheck:
+    test: [CMD, /opt/kafka/bin/kafka-broker-api-versions.sh, --bootstrap-server, 'localhost:9092']
+    interval: 5s
+    timeout: 8s
+    retries: 16
+
+x-worker: &worker
+  image: mlo-data06-split-spark:latest
+  user: '0:0'
+  environment:
+    SPARK_WORKER_CORES: '3'
+    SPARK_WORKER_MEMORY: 3g
+  volumes: [state:/state]
+  entrypoint: [/opt/spark/bin/spark-class, org.apache.spark.deploy.worker.Worker, 'spark://spark-master:7077']
+
+services:
+  kafka-single:
+    extends: {file: compose.yaml, service: kafka}
+    profiles: [comparison]
+    ports: !override ['127.0.0.1:39290:39092']
+    environment:
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-single:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka-single:9092,HOST://127.0.0.1:39290
+  kafka-1:
+    <<: *kafka
+    ports: ['127.0.0.1:39291:39092']
+    environment:
+      <<: *kafka-env
+      KAFKA_NODE_ID: 1
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka-1:9092,HOST://127.0.0.1:39291
+  kafka-2:
+    <<: *kafka
+    ports: ['127.0.0.1:39292:39092']
+    environment:
+      <<: *kafka-env
+      KAFKA_NODE_ID: 2
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka-2:9092,HOST://127.0.0.1:39292
+  kafka-3:
+    <<: *kafka
+    ports: ['127.0.0.1:39293:39092']
+    environment:
+      <<: *kafka-env
+      KAFKA_NODE_ID: 3
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka-3:9092,HOST://127.0.0.1:39293
+  redis:
+    extends: {file: compose.yaml, service: redis}
+  spark-master:
+    image: mlo-data06-split-spark:latest
+    ports: ['127.0.0.1:38089:8080']
+    entrypoint: [/opt/spark/bin/spark-class, org.apache.spark.deploy.master.Master, --host, spark-master]
+  spark-worker-1:
+    <<: *worker
+    hostname: spark-worker-1
+  spark-worker-2:
+    <<: *worker
+    hostname: spark-worker-2
+  spark:
+    image: mlo-data06-split-spark:latest
+    profiles: [driver]
+    user: '0:0'
+    volumes: [state:/state]
+    environment:
+      PYTHONPATH: /opt/data06-python
+    entrypoint: [/opt/spark/bin/spark-submit, --master, 'spark://spark-master:7077', --driver-memory, 1g,
+                 --executor-memory, 768m, --executor-cores, '1', --total-executor-cores, '2',
+                 --conf, spark.driver.bindAddress=0.0.0.0,
+                 --conf, spark.jars.ivySettings=/opt/data06/ivy.xml, --conf, spark.jars.ivy=/state/ivy,
+                 --packages, 'io.delta:delta-spark_2.13:4.0.0,org.apache.spark:spark-sql-kafka-0-10_2.13:4.0.1',
+                 /opt/data06/stream.py]
+
+volumes:
+  kafka:
+  redis:
+  state:
+    external: true
+    name: mlo-data06-split_state
