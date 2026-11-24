@@ -1,0 +1,4 @@
+# Install as /etc/cron.d/nextcloud-teamstorage on the WSL Docker host.
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+*/10 * * * * root mountpoint -q /mnt/c && space=$(df -B1 --output=size,avail /mnt/c | awk 'NR == 2 && $1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ {print $1 ":" $2}') && test -n "$space" && docker exec --user www-data nextcloud-nextcloud-1 php occ config:app:set teamstorage host_space --value="$(date +\%s):$space" >/dev/null
