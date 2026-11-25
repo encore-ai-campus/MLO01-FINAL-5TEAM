@@ -56,7 +56,7 @@ data-pipeline/   재생기, Spark 실시간·배치 작업, 품질 검증
 ml/              추천·구매 전환 예측 모델 학습, 평가, 등록
 serving/         추천·구매 전환 예측 API(FastAPI)
 web/             쇼핑 화면(Django)
-pipelines/       Airflow 작업 정의(일일 배치, 재학습)
+airflow/         Airflow 작업 정의(일일 배치, 재학습)
 infra/           클러스터 설치, Kubernetes 설정, 배포 자동화, 인프라 문서
 ```
 
@@ -66,7 +66,7 @@ infra/           클러스터 설치, Kubernetes 설정, 배포 자동화, 인�
 | `libs/features/`, `data-pipeline/` | 이재원 | `dev` |
 | `ml/` | 김영주 | `dev` |
 | `serving/`, `web/` | 오재석 | `dev` |
-| `pipelines/` | 각 작업의 담당 | `dev` |
+| `airflow/` | 각 작업의 담당 | `dev` |
 | `infra/` | 조성현 | `infra` |
 
 ### 4.1 구성 요소 안의 계층
