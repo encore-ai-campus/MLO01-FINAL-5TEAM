@@ -44,9 +44,70 @@
 
 - 일정표는 엑셀 파일이라 GitHub 화면에서 바로 보이지 않음. 내려받아 열람
 
-## 4. 브랜치
+## 4. 폴더 구조
 
-| 브랜치 | 용도 |
+최상위 폴더는 따로 배포되는 구성 요소 단위로 나누고, 계층은 각 구성 요소 안에서 나눈다.
+
+```
+README.md        저장소 안내
+docs/            팀 공용 문서: 산출물, 용어집, 메시지 형식, 구조도
+libs/features/   공용 피처 계산 패키지(실시간·배치·학습이 함께 씀)
+data-pipeline/   재생기, Spark 실시간·배치 작업, 품질 검증
+ml/              추천·구매 전환 예측 모델 학습, 평가, 등록
+serving/         추천·구매 전환 예측 API(FastAPI)
+web/             쇼핑 화면(Django)
+airflow/         Airflow 작업 정의(일일 배치, 재학습)
+infra/           클러스터 설치, Kubernetes 설정, 배포 자동화, 인프라 문서
+```
+
+| 폴더 | 담당 | 통합 브랜치 |
+|---|---|---|
+| `docs/`, `README.md` | 이여찬 | `doc` |
+| `libs/features/`, `data-pipeline/` | 이재원 | `dev` |
+| `ml/` | 김영주 | `dev` |
+| `serving/`, `web/` | 오재석 | `dev` |
+| `airflow/` | 각 작업의 담당 | `dev` |
+| `infra/` | 조성현 | `infra` |
+
+### 4.1 구성 요소 안의 계층
+
+```
+<구성 요소>/
+  README.md          하는 일, 실행 방법, 계층별 위치
+  src/<패키지>/
+    domain/          규칙: 계산, 판정, 점수 (외부 의존 없음)
+    application/     흐름: 작업 하나의 처리 순서
+    infrastructure/  연동: Kafka, Spark, Delta, Redis, PostgreSQL, MLflow
+    presentation/    입출력: 명령줄, API 핸들러
+  tests/             domain 중심 단위 테스트
+  Dockerfile
+```
+
+- 의존 방향: presentation → application → domain, infrastructure → domain
+- 프레임워크가 정한 구조가 있으면 그것을 따름(예: `web/`의 Django 앱 구조)
+- 구성 요소끼리는 코드를 직접 불러오지 않음. Kafka 메시지 형식, Redis 키, API로만 주고받음. 예외는 `libs/features/`
+- 폴더 이름은 하는 일로 지음. 작업 번호(예: `data06`)는 쓰지 않음
+- 컨테이너 이미지는 구성 요소마다 하나. Kubernetes 배포 설정은 `infra/`에 둠
+
+### 4.2 고칠 곳 찾기
+
+| 하려는 일 | 고칠 곳 |
 |---|---|
-| main | 제출·확정본 |
-| dev | 작업 내용 통합 |
+| 피처 계산 규칙 변경 | `libs/features/` |
+| Kafka·Redis·Delta 연동 변경 | 해당 구성 요소의 `infrastructure/` |
+| 판정·점수 같은 규칙 변경 | 해당 구성 요소의 `domain/` |
+| API 응답 형식 변경 | `serving/`의 `presentation/` |
+| 배포 설정 변경 | `infra/` |
+
+## 5. 브랜치와 커밋
+
+| 브랜치 | 용도 | 작업 브랜치 |
+|---|---|---|
+| main | 제출·확정본 | — |
+| dev | 코드 통합 | `feat;#이슈번호` |
+| doc | 문서 통합 | `doc;#이슈번호` |
+| infra | 인프라(IaC) 통합 | `infra;#이슈번호` |
+
+- 커밋: `[Add]`, `[Mod]`, `[Refactor]`, `[Doc]` + 내용 + `(#이슈번호)`
+- 이슈 작성 형식과 자세한 규칙은 이슈 #1(GitHub 컨벤션)
+- 각 통합 브랜치는 자기 폴더만 고침. 그래서 main으로 합쳐도 충돌하지 않음
