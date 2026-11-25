@@ -166,10 +166,16 @@ def predict_all(booster, queries, threads):
 
 
 def improvement_ci(model_rows, other_rows, repeats, seed):
+    if type(repeats) is not int or repeats < 2:
+        raise ValueError('A confidence interval requires at least two bootstrap resamples')
     by_user = {}
-    for a, b in zip(model_rows, other_rows):
-        if a['request_id'] != b['request_id']:
-            raise ValueError('Compared queries differ')
+    seen = set()
+    for a, b in zip(model_rows, other_rows, strict=True):
+        request_id = a['request_id']
+        if (request_id != b['request_id'] or request_id in seen or a['user'] != b['user']
+                or a['has_truth'] != b['has_truth']):
+            raise ValueError('Compared queries differ or contain duplicate request IDs')
+        seen.add(request_id)
         if a['has_truth']:
             by_user.setdefault(a['user'], []).append(a['ndcg']-b['ndcg'])
     if len(by_user)<2:
