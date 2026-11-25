@@ -14,25 +14,26 @@ from verify_tools import DAY, NEXT_DAY, spark_session
 
 
 KEY = ('partition', 'offset')
-EXCLUSIONS = ('duplicate', 'late', 'human_demo', 'load_test')
+EXCLUSIONS = ('duplicate', 'late', 'invalid', 'human_demo', 'load_test')
 
 
 def reconcile(raw, refined):
     raw_keys = raw.groupBy(*KEY).agg(F.count('*').alias('raw_rows'), F.first('event_id').alias('raw_id'))
     refined_keys = refined.groupBy(*KEY).agg(
-        F.count('*').alias('refined_rows'), F.first('event_id').alias('refined_id'))
+        F.count('*').alias('refined_rows'), F.first('event_id').alias('refined_id'),
+        F.count_if(F.col('status') != 'invalid').alias('valid_id_rows'))
     pairs = raw_keys.join(refined_keys, list(KEY), 'full')
     positions = pairs.agg(
         F.count_if(F.col('refined_rows').isNull()).alias('missing_refined_positions'),
         F.count_if(F.col('raw_rows').isNull()).alias('extra_refined_positions'),
         F.count_if(F.col('raw_rows') > 1).alias('duplicate_raw_positions'),
         F.count_if(F.col('refined_rows') > 1).alias('duplicate_refined_positions'),
-        F.count_if(F.col('raw_rows').isNotNull() & F.col('refined_rows').isNotNull()
+        F.count_if(F.col('raw_rows').isNotNull() & (F.col('valid_id_rows') > 0)
                    & ~F.col('raw_id').eqNullSafe(F.col('refined_id'))).alias('event_id_mismatches'),
     ).first().asDict()
     counts = {row['bucket']: row['count'] for row in (
         refined.withColumn('bucket',
-                           F.when(F.col('status').isin('duplicate', 'late'), F.col('status'))
+                           F.when(F.col('status').isin('duplicate', 'late', 'invalid'), F.col('status'))
                            .when((F.col('status') == 'accepted') & (F.col('origin_type') == 'replay'), 'eligible')
                            .when((F.col('status') == 'accepted') & F.col('origin_type').isin('human_demo', 'load_test'),
                                  F.col('origin_type')).otherwise('unknown'))
@@ -94,7 +95,8 @@ def run(spark, root, input_path, pipeline_path):
     refined = spark.table('daily_refined')
     good = spark.table('events_good')
     counts = reconcile(raw, refined)
-    assert counts['passed'] and counts['excluded'] == {'duplicate': 2, 'late': 1, 'human_demo': 1, 'load_test': 1}
+    assert counts['passed'] and counts['excluded'] == {
+        'duplicate': 2, 'late': 1, 'invalid': 0, 'human_demo': 1, 'load_test': 1}
     assert good.count() == counts['eligible_rows']
     print(f'Day counts reconciled: {counts}', flush=True)
 

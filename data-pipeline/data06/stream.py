@@ -13,13 +13,16 @@ import redis
 from pyspark.sql import SparkSession, functions as F
 from pyspark.sql.types import DoubleType, LongType, StringType, StructField, StructType
 
+from event_schema import ACTION_FIELDS
 
-EVENT_FIELDS = {
-    'event_id': StringType(), 'source': StringType(), 'event_seq': LongType(),
-    'event_time': StringType(), 'event_type': StringType(), 'product_id': LongType(),
-    'category_id': LongType(), 'category_code': StringType(), 'brand': StringType(),
-    'price': DoubleType(), 'user_id': LongType(), 'user_session': StringType(),
+
+KAFKA_JSON_TYPES = {
+    'string': StringType(),
+    'int64': LongType(),
+    'float64': DoubleType(),
+    'utc_timestamp_ms': StringType(),  # The replay producer sends an ISO 8601 string.
 }
+EVENT_FIELDS = {name: KAFKA_JSON_TYPES[kind] for name, kind in ACTION_FIELDS}
 EVENT_SCHEMA = StructType([StructField(name, kind) for name, kind in EVENT_FIELDS.items()])
 
 

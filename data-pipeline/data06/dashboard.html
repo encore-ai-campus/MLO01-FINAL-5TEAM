@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>데이터 파이프라인 모니터</title>
+<style>
+:root{color-scheme:dark;--bg:#0c111a;--panel:#121b29;--higher:#182435;--border:#273447;--text:#edf3fb;--muted:#9eafc5;--green:#66e3b2;--blue:#7bb0ff;--amber:#f6c46f;--red:#ff9b98}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(ellipse at 64% 0%,#172537 0%,transparent 44%),var(--bg);color:var(--text);font:14px/1.6 "Pretendard","Segoe UI","Malgun Gothic",sans-serif;min-height:100vh}
+main{max-width:1260px;margin:auto;padding:42px 38px 30px}
+h1,h2,h3,p{margin:0}h1{font-size:clamp(27px,4vw,42px);letter-spacing:-.045em;line-height:1.2}h2{font-size:18px;letter-spacing:-.02em}h3{font-size:13px;font-weight:600}
+.intro{color:var(--muted);margin-top:8px}
+.top{display:flex;justify-content:space-between;gap:20px;align-items:flex-start}
+.status{display:inline-flex;align-items:center;gap:8px;padding:5px 12px;border:1px solid var(--border);border-radius:99px;font-size:12px;color:var(--muted);white-space:nowrap}
+.dot{height:7px;width:7px;border-radius:50%;background:currentColor}.status.live{color:var(--green)}.status.warning{color:var(--amber)}.status.offline{color:var(--red)}
+.controls{display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;margin:30px 0 20px}
+label{display:grid;gap:5px;color:var(--muted);font-size:12px}
+select,button{font:inherit;color:var(--text);background:var(--panel);border:1px solid var(--border);border-radius:9px;padding:8px 12px;min-height:42px}
+select{max-width:min(76vw,445px)}button{cursor:pointer}button:hover,select:hover{border-color:var(--blue)}
+select:focus-visible,button:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.controls .timestamp{margin-inline-start:auto;align-self:center;font-size:12px;color:var(--muted)}
+.tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:16px}
+.tile,.section{border:1px solid var(--border);border-radius:14px;background:var(--panel)}
+.tile{padding:15px 17px;min-width:0}.tile small{color:var(--muted)}.value{font:650 clamp(23px,3.4vw,32px)/1.2 ui-monospace,Consolas,monospace;margin:7px 0 4px;color:var(--text);font-variant-numeric:tabular-nums;white-space:nowrap}
+.value.warn{color:var(--amber)}.value.bad{color:var(--red)}.value.good{color:var(--green)}
+.section{padding:20px;margin-bottom:16px}.section-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:14px}.section-head small{color:var(--muted);text-align:right}
+.flow{display:grid;grid-template-columns:minmax(0,1fr) 24px minmax(0,1fr) 24px minmax(0,1fr) 30px minmax(0,1.17fr);gap:7px;align-items:center}
+.node{min-width:0;background:var(--higher);border:1px solid var(--border);border-radius:10px;padding:12px;position:relative}
+.node h3{color:var(--muted);margin-bottom:3px}.node strong{font:650 24px/1.35 ui-monospace,Consolas,monospace;font-variant-numeric:tabular-nums}
+.node small{display:block;color:var(--muted);font-size:11px;margin-top:3px}.node .queued{color:var(--amber)}
+.arrow{font-size:20px;color:var(--blue);text-align:center}.branch{display:grid;gap:8px}.elbow{height:63%;min-height:78px;position:relative;border-top:1px solid var(--blue);border-bottom:1px solid var(--blue);border-left:1px solid var(--blue);border-radius:7px 0 0 7px;margin-left:12px}.elbow:before{content:"";position:absolute;right:100%;width:13px;top:50%;height:1px;background:var(--blue)}
+.charts{display:grid;grid-template-columns:1fr 1fr;gap:16px}.chart-wrap{position:relative;height:167px}canvas{width:100%;height:100%;display:block}
+.empty{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);pointer-events:none}.empty[hidden]{display:none}
+.health{display:flex;gap:8px;flex-wrap:wrap;color:var(--muted);margin-bottom:12px}.health span{padding:4px 9px;background:var(--panel);border:1px solid var(--border);border-radius:6px}.badge-ok{color:var(--green)}.badge-bad{color:var(--red)}.note{color:var(--muted);font-size:12px}.error{margin:0 0 16px;color:var(--red);border:1px solid var(--border);padding:10px 14px;border-radius:8px}.error[hidden]{display:none}
+.events-head{align-items:center}.events-head select{min-height:36px;padding:5px 10px}.events-panel{max-height:392px;overflow:auto;border:1px solid var(--border);border-radius:9px}
+.event-clock{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 12px;margin:0 0 12px;padding:10px 12px;background:#14243a;border-radius:8px;font-size:.875rem}
+.event-clock strong{color:#a9ceff;font-variant-numeric:tabular-nums}.event-clock small{color:var(--muted)}
+.events-panel table{width:100%;min-width:790px;border-collapse:separate;border-spacing:0;text-align:left;white-space:nowrap}
+.events-panel th{position:sticky;top:0;background:var(--higher);z-index:1;color:var(--muted);font-size:12px;font-weight:600}
+.events-panel td,.events-panel th{padding:9px 12px;border-bottom:1px solid var(--border)}.events-panel tr:last-child td{border-bottom:0}
+.events-panel td:not(:first-child){font:12px/1.6 ui-monospace,Consolas,monospace}.events-panel td:first-child{width:106px}
+.event-type{display:inline-block;border:1px solid var(--border);border-radius:5px;padding:2px 7px;color:var(--muted);font-size:12px}
+.event-type.view{color:var(--blue)}.event-type.cart{color:var(--amber)}.event-type.purchase{color:var(--green)}
+.events-panel tr.fresh td{animation:arrive 2.8s ease-out}@keyframes arrive{from{background:#215840}to{background:transparent}}
+.events-empty{padding:15px 13px;color:var(--muted)}.events-empty[hidden]{display:none}
+@media(prefers-reduced-motion:reduce){.events-panel tr.fresh td{animation:none}}
+.jump{align-self:center;color:var(--blue);text-underline-offset:3px;white-space:nowrap}
+.peak-layout{display:grid;grid-template-columns:minmax(210px,.78fr) minmax(0,1.7fr);gap:18px}
+.peak-layout[hidden]{display:none}
+.routes{display:grid;gap:9px;margin:0 0 16px}.route{display:flex;flex-wrap:wrap;align-items:center;gap:7px;color:var(--muted);font-size:12px}
+.route-label{min-width:89px;color:var(--text);font-weight:600}.route-step{background:var(--higher);border:1px solid var(--border);border-radius:6px;padding:3px 8px;color:var(--text)}
+.route-arrow{color:var(--blue)}.route-arrow::before{content:"→"}.route-divider{border-top:1px solid var(--border);padding-top:13px;margin-top:16px;margin-bottom:0}
+.node.active-flow{animation:flow 2.8s ease-out}@keyframes flow{from{border-color:var(--green);box-shadow:0 0 0 2px #66e3b240}to{border-color:var(--border);box-shadow:none}}
+@media(prefers-reduced-motion:reduce){.node.active-flow{animation:none}}
+.peak-card{padding:13px 14px;border:1px solid var(--border);border-radius:9px;background:var(--higher)}
+.peak-card strong{font-size:17px}.peak-kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:8px 0}
+.peak-kpis b{display:block;font:650 17px/1.3 ui-monospace,Consolas,monospace}
+.peak-kpis span{font-size:11px;color:var(--muted)}.peak-pass{color:var(--green)}.peak-fail{color:var(--red)}
+.peak-bars{display:grid;grid-template-columns:repeat(24,minmax(0,1fr));align-items:end;gap:4px;height:102px;padding:2px 0 5px;border-bottom:1px solid var(--border)}
+.peak-bars button{position:relative;padding:0;width:100%;height:100%;min-height:0;border:0;background:transparent;border-radius:3px;display:flex;align-items:end}
+.peak-bars button span{display:block;width:100%;height:var(--bar-height);background:#49719d;border-radius:3px 3px 0 0}
+.peak-bars button:hover span,.peak-bars button[aria-pressed=true] span{background:var(--blue)}
+.peak-bars button[data-peak=true] span{background:var(--green)}
+.peak-bars button[aria-pressed=true]{outline:1px solid var(--blue);outline-offset:1px}
+.peak-labels{display:flex;justify-content:space-between;color:var(--muted);font-size:11px}
+@media(max-width:680px){.peak-layout{grid-template-columns:1fr}.peak-bars{gap:2px}.jump{font-size:12px}}
+@media(max-width:850px){main{padding:28px 20px}.node{padding:9px}.node strong{font-size:20px}.flow{grid-template-columns:minmax(0,1fr) 13px minmax(0,1fr) 13px minmax(0,1fr) 22px minmax(0,1.2fr);gap:4px}.elbow{margin-left:9px}.elbow:before{width:9px}}
+@media(max-width:580px){main{padding:23px 14px}.top{flex-wrap:wrap}.controls{margin-top:20px;gap:8px}.controls .timestamp{margin-inline-start:0;width:100%}.tiles,.charts{grid-template-columns:1fr 1fr}.node strong{font-size:18px}.section{padding:14px}.flow{grid-template-columns:1fr}.arrow,.elbow{display:none}.branch{grid-template-columns:1fr 1fr}.charts{grid-template-columns:1fr}.section-head{align-items:flex-start}}
+.operations{margin-top:20px;padding-top:18px;border-top:1px solid #28364a}
+.operations h3{margin:0;font-size:17px}.operations .note{margin:8px 0 12px}
+.ops-scroll{overflow-x:auto}.ops-table{width:100%;border-collapse:collapse;text-align:left;font-size:.875rem}
+.ops-table th,.ops-table td{padding:10px 12px;border-bottom:1px solid #28364a;vertical-align:top}
+.ops-table thead th{color:#b4c4da;font-weight:500;white-space:nowrap}.ops-table tbody th{min-width:165px}
+.ops-table code,.ops-table small{display:block;overflow-wrap:anywhere;color:#aabbd1;font-size:.8rem}
+.ops-table details{min-width:165px}.ops-table summary{cursor:pointer;color:#93c2ff;white-space:nowrap}
+.ops-partitions{margin:6px 0 0;padding-left:18px;min-width:280px}.ops-partitions li+li{margin-top:4px}
+.ops-pending{color:#ffcc7b;font-weight:650}.ops-clear{color:#66e3b2}.ops-unknown{color:#aabbd1}
+.recovery{margin-top:16px;padding:13px 14px;border:1px solid #374358;border-radius:10px}
+.recovery summary{cursor:pointer;font-weight:650}.recovery .route{margin:12px 0}.recovery p:last-child{margin-bottom:0}
+</style>
+</head>
+<body>
+<main>
+  <header class="top">
+    <div><h1>데이터 파이프라인 모니터</h1><p class="intro">어디까지 처리됐는지, 어느 단계에 데이터가 쌓였는지 확인합니다.</p></div>
+    <div id="state" class="status" role="status"><span class="dot"></span><span id="stateText">연결 중</span></div>
+  </header>
+  <div class="controls">
+    <label>환경<select id="profile"><option value="split">로컬 분리 실행</option><option value="cluster">로컬 Kafka·Spark 클러스터</option></select></label>
+    <label>재생 실행<select id="run"><option value="">최근 실행 자동 선택</option></select></label>
+    <button id="refresh" type="button">지금 새로고침</button>
+    <a class="jump" href="#peakSection">피크 시간대 ↓</a>
+    <a class="jump" href="#architecture">데이터 흐름 ↓</a>
+    <span id="observed" class="timestamp">3초마다 갱신</span>
+  </div>
+  <div id="error" class="error" hidden></div>
+  <section class="section" aria-labelledby="eventsTitle">
+    <div class="section-head events-head">
+      <div><h2 id="eventsTitle">실시간 행동 로그</h2><p class="note" id="eventLimit">Kafka 도착 순서 · 최신순</p></div>
+      <select id="eventFilter" aria-label="행동 유형"><option value="">전체 행동</option><option value="view">조회</option><option value="cart">장바구니</option><option value="purchase">구매</option></select>
+    </div>
+    <p class="event-clock"><span>원본 데이터가 들어온 시각</span><strong id="latestEventTime">—</strong><small id="latestEventScope">조회한 행동 중 원본 시각이 가장 최신인 기록 · KST</small></p>
+    <div class="events-panel">
+      <table id="eventTable" hidden>
+        <thead><tr><th>행동</th><th>Kafka 도착</th><th>원본 행동 시각 (KST)</th><th>사용자 ID</th><th>상품 ID</th><th>이벤트 ID</th></tr></thead>
+        <tbody id="eventRows"></tbody>
+      </table>
+      <div id="eventEmpty" class="events-empty" role="status">Kafka 연결 중입니다.</div>
+    </div>
+  </section>
+  <section class="tiles" aria-label="요약 지표">
+    <article class="tile"><h3>원본 Kafka 유입</h3><div id="inputRate" class="value">—</div><small>최근 갱신 구간 · 건/초</small></article>
+    <article class="tile"><h3>Redis 반영 대기</h3><div id="redisLag" class="value">—</div><small>정제 Kafka 기준 · 건</small></article>
+    <article class="tile"><h3>Kafka → Redis p95</h3><div id="p95" class="value">—</div><small>목표 3초 이하</small></article>
+    <article class="tile"><h3>Kafka → Redis p99</h3><div id="p99" class="value">—</div><small>목표 5초 이하</small></article>
+  </section>
+  <section class="section" id="architecture" aria-labelledby="architectureTitle">
+    <div class="section-head"><h2 id="architectureTitle">파이프라인 구조와 실시간 흐름</h2><small id="runName">실행 선택 대기</small></div>
+    <div class="routes" aria-label="데이터 입력 경로">
+      <div class="route"><span class="route-label">과거 재생</span><span class="route-step">공용 Parquet</span><span class="route-arrow" aria-hidden="true"></span><span class="route-step">재생기</span><span class="route-arrow" aria-hidden="true"></span><span class="route-step">Kafka 행동 토픽</span></div>
+      <div class="route"><span class="route-label">화면 행동</span><span class="route-step">조회·장바구니·구매</span><span class="route-arrow" aria-hidden="true"></span><span class="route-step">백엔드</span><span class="route-arrow" aria-hidden="true"></span><span class="route-step">Kafka 행동 토픽</span><span>팀 연동 경로</span></div>
+    </div>
+    <div class="flow">
+      <article class="node"><h3>Kafka · 원본</h3><strong id="kafkaTotal">—</strong><small>브로커 기록 건수</small></article>
+      <span class="arrow" aria-hidden="true">→</span>
+      <article class="node"><h3>Spark · 판정</h3><strong id="decisionTotal">—</strong><small id="decisionNote">처리 위치 대기</small></article>
+      <span class="arrow" aria-hidden="true">→</span>
+      <article class="node"><h3>Kafka · 정제</h3><strong id="refinedTotal">—</strong><small>판정 결과 기록 건수</small></article>
+      <span class="elbow" aria-hidden="true"></span>
+      <div class="branch">
+        <article class="node"><h3>Redis · 상태 반영</h3><strong id="redisTotal">—</strong><small id="redisNote">처리 위치 대기</small><small>통과한 행동으로 최신 사용자 상태 갱신</small></article>
+        <article class="node"><h3>Delta · 이력 적재</h3><strong id="deltaTotal">—</strong><small id="deltaNote">처리 위치 대기</small><small>원본 토픽과 정제 토픽을 읽어 각각 보관</small></article>
+      </div>
+    </div>
+    <div class="routes route-divider" aria-label="저장 후 활용 경로">
+      <div class="route"><span class="route-label">실시간 추천</span><span class="route-step">Redis</span><span class="route-arrow" aria-hidden="true"></span><span class="route-step">공통 피처 조회</span><span class="route-arrow" aria-hidden="true"></span><span class="route-step">추천 API</span></div>
+      <div class="route"><span class="route-label">이력 저장</span><span class="route-step">Kafka 원본·정제 토픽</span><span class="route-arrow" aria-hidden="true"></span><span class="route-step">Delta 원본·정제 표</span><span>학습·품질 검사·Redis 복구에 사용</span></div>
+      <div class="route"><span class="route-label">일 배치 설계</span><span class="route-step">Delta 이력</span><span class="route-arrow" aria-hidden="true"></span><span class="route-step">Airflow · Spark 일 배치</span><span class="route-arrow" aria-hidden="true"></span><span class="route-step">Redis 사용자·상품 배치 피처</span></div>
+      <p class="note">숫자는 로컬 실행의 실측입니다. Redis와 Delta는 각자 처리하므로 Delta 적재만 밀려도 Redis 갱신은 계속할 수 있습니다.</p>
+    </div>
+    <div class="operations" id="operations">
+      <h3>처리 대기와 재개 위치</h3>
+      <p class="note">대기 0건이면 이 작업이 Kafka의 조회 시점까지 따라잡은 상태입니다. 파티션별 위치를 펼치면 재시작 시 이어 읽을 번호를 볼 수 있습니다.</p>
+      <div class="ops-scroll">
+        <table class="ops-table" aria-label="작업별 처리 대기와 재개 위치">
+          <thead><tr><th scope="col">처리 구간</th><th scope="col">Kafka 대기</th><th scope="col">마지막 처리 기록</th><th scope="col">재개 위치</th></tr></thead>
+          <tbody id="checkpointRows"><tr><td colspan="4">실행 정보를 불러오는 중입니다.</td></tr></tbody>
+        </table>
+      </div>
+      <details class="recovery">
+        <summary>Redis 데이터가 사라지면 어디서 다시 시작하나요?</summary>
+        <div class="route" aria-label="Redis 복구 흐름"><span class="route-step">이벤트 발행·Redis 반영 정지</span><span class="route-arrow" aria-hidden="true"></span><span class="route-step">Kafka 기준 위치까지 Delta 적재 확인</span><span class="route-arrow" aria-hidden="true"></span><span class="route-step">Delta 이력으로 Redis 복원</span><span class="route-arrow" aria-hidden="true"></span><span class="route-step">Kafka에서 이어 읽기</span></div>
+        <p class="note">작업만 재시작할 때는 마지막 저장 위치를 사용합니다. Redis 상태를 잃었을 때는 Delta에 저장된 이력으로 상태를 만들고, Kafka에서 복구 시작 위치부터 읽습니다. 복구 기준 전에 이미 반영한 이벤트는 다시 적용하지 않습니다.</p>
+        <p id="recoveryReceipt" class="note">선택한 실행의 실제 복구 기록을 확인 중입니다.</p>
+      </details>
+    </div>
+  </section>
+  <section class="section" id="peakSection" aria-labelledby="peakTitle">
+    <div class="section-head"><h2 id="peakTitle">피크 시간대 성능</h2><small id="peakSource">하루치 검증 기록 확인 중</small></div>
+    <div id="peakContent" class="peak-layout" hidden>
+      <div class="peak-card">
+        <strong id="peakHour">—</strong>
+        <div class="peak-kpis">
+          <div><b id="peakEvents">—</b><span>처리 건수</span></div>
+          <div><b id="peakP95">—</b><span>Redis p95</span></div>
+          <div><b id="peakP99">—</b><span>Redis p99</span></div>
+        </div>
+        <p id="peakPass" class="note"></p>
+      </div>
+      <div>
+        <div id="peakBars" class="peak-bars" aria-label="시간대별 처리 건수"></div>
+        <div class="peak-labels"><span>09:00 KST</span><span>21:00 KST</span><span>다음 날 09:00 KST</span></div>
+        <p class="note" id="peakOverall"></p>
+      </div>
+    </div>
+    <p id="peakEmpty" class="note">완료된 하루치 시험을 불러오는 중입니다.</p>
+  </section>
+  <div class="charts">
+    <section class="section"><div class="section-head"><h2>유입 속도</h2><small>건/초</small></div><div class="chart-wrap"><canvas id="rateChart" aria-label="원본 Kafka 초당 유입 건수" role="img"></canvas><span class="empty" id="rateEmpty">다음 갱신부터 확인할 수 있어요</span></div></section>
+    <section class="section"><div class="section-head"><h2>Redis 반영 지연</h2><small id="sampleCount">최근 반영 · 초</small></div><div class="chart-wrap"><canvas id="latencyChart" aria-label="원본 Kafka에서 Redis 반영까지의 지연" role="img"></canvas><span class="empty" id="latencyEmpty">선택한 실행의 지연 기록이 없어요</span></div></section>
+  </div>
+  <div class="health" id="health" aria-label="서비스 상태"></div>
+  <p class="note">Kafka 건수는 토픽 오프셋, 작업 건수는 커밋된 처리 위치를 기준으로 집계합니다. Redis 처리 건수에는 판정에서 제외된 메시지도 포함됩니다. 반영 지연은 예열이 포함될 수 있는 최근 최대 250건의 지표입니다.</p>
+</main>
+<script>
+const el = id => document.getElementById(id);
+const number = new Intl.NumberFormat('ko-KR');
+const clock = new Intl.DateTimeFormat('ko-KR', {hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
+const fmt = n => n == null ? '—' : number.format(n);
+const fmtLatency = ms => ms == null ? '—' : (ms / 1000).toFixed(2) + '초';
+const kstHour = new Intl.DateTimeFormat('ko-KR',{timeZone:'Asia/Seoul',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
+function renderPeak(benchmark) {
+  if (!benchmark) {
+    el('peakSource').textContent='하루치 검증 기록 없음';
+    el('peakEmpty').textContent='시간대별 결과가 포함된 하루치 검증이 완료되면 표시됩니다.';
+    return;
+  }
+  el('peakEmpty').hidden=true;
+  el('peakContent').hidden=false;
+  el('peakSource').textContent=benchmark.window_utc[0].slice(0,10)+' UTC · 로컬 '+benchmark.speed+'배속 실측';
+  const peak = benchmark.hours.find(row=>row.start===benchmark.peak);
+  const range = row => kstHour.format(Date.parse(row.start))+'~'+kstHour.format(Date.parse(row.start)+3600000)+' KST';
+  const select = row => {
+    el('peakHour').textContent=(row.start===benchmark.peak ? '피크 · ' : '')+range(row);
+    el('peakEvents').textContent=fmt(row.events);
+    el('peakP95').textContent=fmtLatency(row.p95_ms);
+    el('peakP99').textContent=fmtLatency(row.p99_ms);
+    el('peakPass').textContent=row.passes?'p95 3초 · p99 5초 목표 충족':'반영 지연 목표 초과';
+    el('peakPass').className='note '+(row.passes?'peak-pass':'peak-fail');
+    for(const node of el('peakBars').children) node.setAttribute('aria-pressed',node.dataset.hour===row.start);
+  };
+  el('peakBars').replaceChildren(...benchmark.hours.map(row=>{
+    const button=document.createElement('button');
+    button.type='button';button.dataset.hour=row.start;button.dataset.peak=row===peak;
+    button.title=range(row)+' · '+fmt(row.events)+'건';
+    button.setAttribute('aria-label',button.title);
+    const bar=document.createElement('span');bar.style.setProperty('--bar-height',Math.max(4,row.events/peak.events*100)+'%');
+    button.append(bar);button.addEventListener('click',()=>select(row));
+    return button;
+  }));
+  el('peakOverall').textContent='막대를 선택해 시간대를 비교할 수 있습니다. 하루 전체 p95 '+fmtLatency(benchmark.overall.p95_ms)
+    +' · p99 '+fmtLatency(benchmark.overall.p99_ms)+' · '+fmt(benchmark.overall.events)+'건';
+  select(peak);
+}
+let context, current, snapshots = [], busy = false, rerun = false;
+let seenEvents = new Set();
+const actionLabels = {view:'조회',cart:'장바구니',purchase:'구매'};
+const eventKey = row => row.partition + ':' + row.offset;
+const eventClock = new Intl.DateTimeFormat('sv-SE', {timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',
+  day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'});
+const eventMillis = row => typeof row.event_time === 'string' ? Date.parse(row.event_time) : NaN;
+function renderEvents(fresh = new Set()) {
+  if (!current) return;
+  const filter = el('eventFilter').value;
+  const rows = current.events.filter(row => !filter || row.event_type === filter);
+  const latest = Math.max(...current.events.map(eventMillis).filter(Number.isFinite));
+  el('eventLimit').textContent='Kafka에 도착한 최근 '+fmt(current.event_limit)+'건까지 · 최신순';
+  el('latestEventTime').textContent=Number.isFinite(latest) ? eventClock.format(latest)+' KST' : '확인된 시각 없음';
+  el('latestEventScope').textContent='최근 '+fmt(current.events.length)+'건 중 가장 최신인 원본 행동 시각';
+  el('eventTable').hidden = !rows.length;
+  el('eventEmpty').hidden = !!rows.length;
+  if (!rows.length) {
+    el('eventEmpty').textContent = !current.kafka ? 'Kafka 연결을 확인해 주세요.' : current.event_error
+      ? '행동 로그를 읽지 못했습니다. 다음 갱신에서 다시 시도합니다.' : current.events.length
+      ? '최근 '+fmt(current.events.length)+'건에 선택한 행동이 없습니다.' : '이 실행의 행동 토픽에 데이터가 들어오면 여기에 표시됩니다.';
+  }
+  el('eventRows').replaceChildren(...rows.map(event => {
+    const row = document.createElement('tr');
+    if(fresh.has(eventKey(event))) row.className='fresh';
+    const badge = document.createElement('span');
+    badge.className = 'event-type ' + (Object.hasOwn(actionLabels,event.event_type) ? event.event_type : '');
+    badge.textContent = Object.hasOwn(actionLabels,event.event_type) ? actionLabels[event.event_type] : event.event_type ?? '미분류';
+    row.insertCell().append(badge);
+    const timestamp = eventMillis(event);
+    const eventTime = Number.isFinite(timestamp) ? eventClock.format(timestamp) : '—';
+    for (const value of [event.received_ms >= 0 ? clock.format(event.received_ms) : '—',
+      eventTime,event.user_id,event.product_id,event.event_id]) row.insertCell().textContent=value ?? '—';
+    return row;
+  }));
+}
+function chart(id, values, color, emptyId, goal) {
+  const canvas = el(id);
+  el(emptyId).hidden = values.length > 1;
+  const width = canvas.clientWidth, height = canvas.clientHeight, ratio = window.devicePixelRatio || 1;
+  canvas.width = width * ratio;
+  canvas.height = height * ratio;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(ratio, ratio);
+  const left = 42, top = 8, right = width - 9, bottom = height - 22;
+  const max = Math.max(1, ...values.map(value => value[1]), goal || 0) * 1.1;
+  ctx.font = '11px ui-monospace, Consolas, monospace';
+  for (let i = 0; i <= 3; i++) {
+    const y = top + (bottom - top) * i / 3;
+    ctx.strokeStyle = '#28364a';
+    ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(right, y); ctx.stroke();
+    ctx.fillStyle = '#9eafc5';
+    ctx.fillText((max * (1 - i / 3)).toFixed(1), 3, y + 4);
+  }
+  if (values.length < 2) return;
+  const first = values[0][0], last = values.at(-1)[0], span = Math.max(1, last-first);
+  const xy = ([at, value]) => [left + (at-first) / span * (right-left), bottom - value / max * (bottom-top)];
+  if (goal !== undefined) {
+    const y = xy([first, goal])[1];
+    ctx.setLineDash([4,4]);ctx.strokeStyle='#b59356';
+    ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(right,y);ctx.stroke();ctx.setLineDash([]);
+  }
+  const path = new Path2D();
+  values.forEach((point, i) => (i ? path.lineTo(...xy(point)) : path.moveTo(...xy(point))));
+  const area = new Path2D(path);
+  area.lineTo(right,bottom);area.lineTo(left,bottom);area.closePath();
+  const gradient=ctx.createLinearGradient(0,top,0,bottom);
+  gradient.addColorStop(0,color+'55');gradient.addColorStop(1,color+'03');
+  ctx.fillStyle=gradient;ctx.fill(area);ctx.strokeStyle=color;ctx.lineWidth=1.7;ctx.stroke(path);
+  ctx.fillStyle='#9eafc5';ctx.fillText(clock.format(first),left,height-4);
+  const label=clock.format(last);ctx.fillText(label,right-ctx.measureText(label).width,height-4);
+}
+function draw() {
+  chart('rateChart', snapshots, '#77afff','rateEmpty');
+  chart('latencyChart', (current?.latency_series || []).map(([time,ms])=>[time,ms/1000]), '#66e3b2','latencyEmpty',3);
+}
+function setLatency(id, value, limit) {
+  el(id).textContent = fmtLatency(value);
+  el(id).className = 'value' + (value == null ? '' : value > limit ? ' bad' : ' good');
+}
+const checkpointLabels = {'decision':'Kafka 원본 → Spark 판정','redis':'Kafka 정제 → Redis',
+  'delta_raw':'Kafka 원본 → Delta','delta_refined':'Kafka 정제 → Delta'};
+const commitClock = new Intl.DateTimeFormat('ko-KR', {timeZone:'Asia/Seoul',month:'2-digit',day:'2-digit',
+  hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'});
+function renderCheckpoints(data) {
+  const checkpoints = Object.entries(data.checkpoints);
+  const open = new Set([...el('checkpointRows').querySelectorAll('details[open]')].map(node=>node.dataset.stage));
+  const rows = checkpoints.map(([stage, info])=>{
+    const row=document.createElement('tr');
+    const label=document.createElement('th');label.scope='row';label.textContent=checkpointLabels[stage];
+    const topic=document.createElement('code');topic.textContent=info.topic;label.append(topic);row.append(label);
+    const wait=row.insertCell();
+    wait.textContent=info.pending == null ? '확인 불가' : fmt(info.pending)+'건';
+    wait.className=info.pending == null ? 'ops-unknown' : info.pending > 0 ? 'ops-pending' : 'ops-clear';
+    const commit=row.insertCell();
+    commit.textContent=info.last_commit_ms == null ? '기록 없음' : commitClock.format(info.last_commit_ms);
+    if (info.batch != null) {
+      const batch=document.createElement('small');batch.textContent='배치 '+fmt(info.batch)+' · KST';commit.append(batch);
+    }
+    const cell=row.insertCell();
+    if (!info.partitions.length) {cell.textContent='위치 기록 없음';return row;}
+    const details=document.createElement('details');details.open=open.has(stage);details.dataset.stage=stage;
+    const summary=document.createElement('summary');summary.textContent='파티션별 위치';details.append(summary);
+    const positions=document.createElement('ul');positions.className='ops-partitions';
+    for (const part of info.partitions) {
+      const line=document.createElement('li');
+      line.textContent='파티션 '+part.partition+' · 다음 '+fmt(part.next_offset)+' / Kafka 끝 '+fmt(part.kafka_end)
+        +(part.pending == null ? '' : ' · 대기 '+fmt(part.pending)+'건')
+        +(part.before_retention ? ' · 저장 위치가 Kafka 보존 범위 밖' : '');
+      if (part.before_retention) line.className='ops-pending';
+      positions.append(line);
+    }
+    details.append(positions);cell.append(details);return row;
+  });
+  if (!rows.length) {
+    const row=document.createElement('tr');const cell=row.insertCell();cell.colSpan=4;
+    cell.textContent=data.kafka?'표시할 재생 실행이 없습니다.':'Kafka에 연결되면 처리 위치를 확인할 수 있습니다.';
+    rows.push(row);
+  }
+  el('checkpointRows').replaceChildren(...rows);
+  const receipt=data.redis_recovery;
+  const offsets = positions => Object.entries(positions || {}).map(([partition,offset])=>
+    '파티션 '+partition+' → '+fmt(offset)).join(', ');
+  el('recoveryReceipt').textContent=receipt
+    ? '실제 복구 기록 · Delta 기준 '+offsets(receipt.boundary)+' · Kafka 재개 '+offsets(receipt.restart_offsets)
+      +' · 사용자 '+fmt(receipt.restored_user_keys)+'명 복원'
+    : '선택한 실행에 연결된 복구 기록이 없습니다.';
+}
+function render(data) {
+  const old = current;
+  current = data;
+  const identity = data.profile + '/' + data.run;
+  const sameRun = identity === context;
+  if (!sameRun) {context = identity;snapshots = [];seenEvents = new Set();}
+  const incoming = new Set(data.events.map(eventKey));
+  renderEvents(sameRun ? new Set([...incoming].filter(key => !seenEvents.has(key))) : new Set());
+  if (data.kafka && !data.event_error) seenEvents = incoming;
+  const stages = data.stages;
+  const hasRate = old && old.run === data.run && old.profile === data.profile && stages.kafka.total != null && old.stages.kafka.total != null;
+  const elapsed = hasRate ? (data.observed_ms - old.observed_ms) / 1000 : 0;
+  const rate = elapsed > 0 && stages.kafka.total >= old.stages.kafka.total ? (stages.kafka.total - old.stages.kafka.total) / elapsed : null;
+  if (rate != null) snapshots = [...snapshots,[data.observed_ms,rate]].slice(-45);
+  el('inputRate').textContent = rate == null ? '—' : rate.toFixed(1);
+  el('redisLag').textContent = fmt(stages.redis.pending);
+  el('redisLag').className = 'value' + (stages.redis.pending > 0 ? ' warn' : '');
+  setLatency('p95',data.latency.p95,3000);setLatency('p99',data.latency.p99,5000);
+  const state = !data.kafka ? ['offline','Kafka 연결 끊김'] : !data.redis ? ['warning','Redis 연결 끊김'] : data.active
+    ? ['live','실행 중'] : data.run ? ['','최근 실행 기록'] : ['warning','재생 실행 대기'];
+  el('state').className = 'status ' + state[0];el('stateText').textContent=state[1];
+  el('observed').textContent = clock.format(data.observed_ms) + ' 갱신 · 3초 간격';
+  el('runName').textContent = data.run || '발견된 실행 없음';
+  el('sampleCount').textContent = '최근 ' + fmt(data.latency.count) + '건 · 초';
+  const selected = el('run').value;
+  const runs = !data.kafka && selected ? [...new Set([...data.runs, selected])] : data.runs;
+  el('run').replaceChildren(new Option('최근 실행 자동 선택',''), ...runs.map(run => new Option(run,run)));
+  el('run').value = runs.includes(selected) ? selected : '';
+  renderCheckpoints(data);
+  for(const id of ['kafka','decision','refined','redis','delta']) {
+    const stage=stages[id];el(id+'Total').textContent=fmt(stage.total);
+    const previous=hasRate ? old.stages[id].total : null;
+    const card=el(id+'Total').closest('.node');
+    card.classList.toggle('active-flow',previous != null && stage.total > previous);
+    const note=el(id+'Note');
+    if (!note) continue;
+    note.textContent=stage.total == null ? '처리 위치 기록 없음' : '대기 ' + fmt(stage.pending) + '건'
+      + (id === 'delta' && stage.raw?.total != null ? ' · 원본 대기 ' + fmt(stage.raw.pending) + '건' : '');
+    if(stage.last_commit_ms) note.title='마지막 커밋 '+clock.format(stage.last_commit_ms);
+    else note.removeAttribute('title');
+    note.classList.toggle('queued',stage.pending>0 || stage.raw?.pending>0);
+  }
+  const service = (name,value,detail) => {
+    const span=document.createElement('span');
+    span.textContent=name+' '+detail;
+    span.className=value ? 'badge-ok' : 'badge-bad';return span;
+  };
+  const health = [service('Kafka',data.kafka,data.kafka?'연결':'미연결'),service('Redis',data.redis,data.redis?'연결':'미연결')];
+  if (data.profile==='cluster') health.push(service('Spark 워커',data.spark_workers>0,(data.spark_workers ?? '—')+'개'));
+  if (data.replay) health.push(service('재생 로그 시각',true,data.replay.replay_time.replace('T',' ').replace('+00:00',' UTC')));
+  el('health').replaceChildren(...health);
+  draw();
+}
+async function refresh() {
+  if(busy){rerun=true;return;}
+  busy=true;
+  const profile=el('profile').value, run=el('run').value;
+  try {
+    const response = await fetch('/api/status?' + new URLSearchParams({profile,run}), {signal:AbortSignal.timeout(11000)});
+    if(!response.ok) throw new Error('HTTP '+response.status);
+    const data=await response.json();
+    if (profile===el('profile').value && run===el('run').value){render(data);el('error').hidden=true;}
+  } catch(error){el('error').textContent='모니터링 데이터를 읽지 못했습니다. 다음 갱신에서 다시 시도합니다.';el('error').hidden=false;}
+  finally{busy=false;if(rerun){rerun=false;refresh();}}
+}
+el('profile').addEventListener('change',()=>{el('run').replaceChildren(new Option('최근 실행 자동 선택',''));refresh();});
+el('run').addEventListener('change',refresh);
+el('eventFilter').addEventListener('change',()=>renderEvents());
+el('refresh').addEventListener('click',refresh);
+window.addEventListener('resize',draw);
+refresh();setInterval(refresh,3000);
+fetch('/api/peak').then(response=>{
+  if(!response.ok) throw new Error('Peak benchmark unavailable');
+  return response.json();
+}).then(renderPeak).catch(()=>renderPeak(null));
+</script>
+</body>
+</html>

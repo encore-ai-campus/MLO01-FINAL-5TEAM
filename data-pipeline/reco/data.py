@@ -9,8 +9,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-FIELDS = ['event_time', 'event_type', 'product_id', 'category_id',
-          'category_code', 'brand', 'price', 'user_id', 'user_session']
+from data06.event_schema import SOURCE_FIELDS
+
+FIELDS = list(SOURCE_FIELDS)
 ACTIONS = {'view': 0, 'cart': 1, 'purchase': 2}
 
 
