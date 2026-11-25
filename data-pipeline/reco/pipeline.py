@@ -15,12 +15,17 @@ from .core import FEATURES, WEIGHTS, State, generate, iso, read_events, session_
 from .store import checksum, code_version, install, NeighborStore
 
 
+BOOTSTRAP_UNIT = 'user'
+
+
 def write_json(file, obj):
     Path(file).parent.mkdir(parents=True, exist_ok=True)
     Path(file).write_text(json.dumps(obj, ensure_ascii=False, indent=2, allow_nan=False), 'utf-8')
 
 
 def validate_config(c):
+    if c.get('bootstrap_unit', BOOTSTRAP_UNIT) != BOOTSTRAP_UNIT:
+        raise ValueError('Recommendation confidence intervals resample by user')
     cf.training_bounds(timestamp(c['cf_cutoff']),c)
     previous_end = timestamp(c['cf_cutoff'])
     for name in ['rank_train', 'validation', 'test', 'future']:
@@ -165,15 +170,23 @@ def predict_all(booster, queries, threads):
     return np.split(booster.predict(matrix, num_threads=threads), np.cumsum(lengths)[:-1])
 
 
-def improvement_ci(model_rows, other_rows, repeats, seed):
+def improvement_ci(model_rows, other_rows, repeats, seed, *, unit=BOOTSTRAP_UNIT):
+    if unit != BOOTSTRAP_UNIT:
+        raise ValueError('Recommendation confidence intervals resample by user')
+    if type(repeats) is not int or repeats < 2:
+        raise ValueError('A confidence interval requires at least two bootstrap resamples')
     by_user = {}
-    for a, b in zip(model_rows, other_rows):
-        if a['request_id'] != b['request_id']:
-            raise ValueError('Compared queries differ')
+    seen = set()
+    for a, b in zip(model_rows, other_rows, strict=True):
+        request_id = a['request_id']
+        if (request_id != b['request_id'] or request_id in seen or a['user'] != b['user']
+                or a['has_truth'] != b['has_truth']):
+            raise ValueError('Compared queries differ or contain duplicate request IDs')
+        seen.add(request_id)
         if a['has_truth']:
             by_user.setdefault(a['user'], []).append(a['ndcg']-b['ndcg'])
     if len(by_user)<2:
-        return {'users': len(by_user), 'mean_delta': None, 'ci95': [None, None]}
+        return {'unit': unit, 'users': len(by_user), 'mean_delta': None, 'ci95': [None, None]}
     sums = np.asarray([sum(x) for x in by_user.values()])
     counts = np.asarray([len(x) for x in by_user.values()])
     rng = np.random.default_rng(seed)
@@ -181,13 +194,14 @@ def improvement_ci(model_rows, other_rows, repeats, seed):
     for _ in range(repeats):
         ix = rng.integers(0, len(sums), len(sums))
         samples.append(float(sums[ix].sum()/counts[ix].sum()))
-    return {'users': len(by_user), 'mean_delta': float(sums.sum()/counts.sum()),
+    return {'unit': unit, 'users': len(by_user), 'mean_delta': float(sums.sum()/counts.sum()),
             'ci95': [float(v) for v in np.quantile(samples, [.025, .975])]}
 
 
 def train(database, config, output):
     started = time.monotonic()
     c = json.loads(Path(config).read_text('utf-8'))
+    c.setdefault('bootstrap_unit', BOOTSTRAP_UNIT)
     validate_config(c)
     c['cf_cutoff_ts'] = timestamp(c['cf_cutoff'])
     source_manifest = Path(database).with_suffix('.manifest.json')
@@ -247,7 +261,11 @@ def train(database, config, output):
         metrics[split], raw_rows[split] = {}, {}
         for mode in ['popular', 'cf', 'ranker']:
             metrics[split][mode], raw_rows[split][mode] = evaluate(queries[split], mode, predictions[split] if mode=='ranker' else None)
-    comparisons = {m: improvement_ci(raw_rows['test']['ranker'], raw_rows['test'][m], c['bootstrap_repeats'], c['seed']) for m in ['popular', 'cf']}
+    comparisons = {
+        m: improvement_ci(raw_rows['test']['ranker'], raw_rows['test'][m],
+                          c['bootstrap_repeats'], c['seed'], unit=c['bootstrap_unit'])
+        for m in ['popular', 'cf']
+    }
     primary = metrics['test']['ranker']
     enough = primary['queries_with_eligible_future_purchase'] >= c['min_evaluation_purchase_queries']
     improves = all(v['ci95'][0] is not None and v['ci95'][0]>0 for v in comparisons.values())
@@ -282,6 +300,7 @@ def train(database, config, output):
               'rank_training': {'groups': len(groups), 'rows': len(y), 'validation_groups': len(vg),
                                 'best_iteration': booster.current_iteration(),
                                 'feature_importance_gain': dict(zip(FEATURES, map(float, booster.feature_importance('gain'))))},
+              'bootstrap': {'unit': c['bootstrap_unit'], 'repeats': c['bootstrap_repeats'], 'seed': c['seed']},
               'test_comparisons': comparisons, 'promotion': promotion,
               'runtime_seconds': round(time.monotonic()-started, 2),
               'process_peak_working_set_mb': round(getattr(psutil.Process().memory_info(), 'peak_wset', psutil.Process().memory_info().rss)/1024**2, 2),
