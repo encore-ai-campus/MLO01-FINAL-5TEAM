@@ -13,6 +13,7 @@ from time import perf_counter, time
 
 import redis
 from pyspark.sql import Window, functions as F
+from pyspark.sql.types import StringType, StructField, StructType
 
 from stream import EVENT_FIELDS, EVENT_SCHEMA, spark_session
 from redis_contract import parse_time, user_key, utc_string
@@ -69,11 +70,16 @@ def run_query(frame, checkpoint, callback, args):
             query.stop()
 
 
+DECISION_POLICY = 'partition-event-time-quarantine-v1'
+INVALID = 'invalid'
+
+
 def decision_state(path, contract):
     db = sqlite3.connect(path)
     db.executescript("""
         CREATE TABLE IF NOT EXISTS contract (id INTEGER PRIMARY KEY CHECK (id = 1), value TEXT NOT NULL);
-        CREATE TABLE IF NOT EXISTS completed (batch INTEGER PRIMARY KEY, last_event_ms INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS completed (batch INTEGER PRIMARY KEY);
+        CREATE TABLE IF NOT EXISTS partition_clock (partition INTEGER PRIMARY KEY, last_event_ms INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS seen (event_id TEXT PRIMARY KEY, payload_hash TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY, event_ms INTEGER, source TEXT, seq INTEGER
@@ -82,7 +88,8 @@ def decision_state(path, contract):
     with db:
         db.execute('INSERT OR IGNORE INTO contract VALUES (1, ?)', (contract,))
         if db.execute('SELECT value FROM contract WHERE id = 1').fetchone()[0] != contract:
-            raise ValueError('Decision input, output and lateness must stay fixed within one replay')
+            raise ValueError('Decision input, output, lateness and policy must stay fixed within one replay; '
+                             'use a new run and new topics to apply a changed decision policy')
     return db
 
 
@@ -92,7 +99,7 @@ def classify(db, event, event_ms, prior_max, allowed_lateness_ms):
     known = db.execute('SELECT payload_hash FROM seen WHERE event_id = ?', (event_id,)).fetchone()
     if known:
         if known[0] != digest:
-            raise ValueError(f'Conflicting payload for event {event_id}')
+            return INVALID
         return 'duplicate'
     db.execute('INSERT INTO seen VALUES (?, ?)', (event_id, digest))
     user = (event['user_id'],)
@@ -106,11 +113,31 @@ def classify(db, event, event_ms, prior_max, allowed_lateness_ms):
     return 'accepted'
 
 
+def rejection_reason(event, event_ms, key):
+    if not event or event.pop('_corrupt_record', None) is not None:
+        return 'malformed_payload'
+    if not event['source'] or event['event_seq'] is None or event['event_seq'] < 0:
+        return 'invalid_source_or_sequence'
+    if event['event_id'] != f"{event['source']}:{event['event_seq']}":
+        return 'invalid_event_id'
+    if event_ms is None:
+        return 'invalid_event_time'
+    if event['user_id'] is None or event['product_id'] is None:
+        return 'missing_user_or_product_id'
+    if event['event_type'] not in ('view', 'cart', 'purchase'):
+        return 'invalid_event_type'
+    if key != str(event['user_id']):
+        return 'invalid_kafka_key'
+    return None
+
+
 def decision_worker(spark, args, root):
     raw = kafka_stream(spark, args, args.topic)
-    parsed = raw.withColumn('event', F.from_json('value', EVENT_SCHEMA, {'mode': 'FAILFAST'}))
-    parsed = parsed.withColumn('event_ms', F.unix_millis(F.to_timestamp('event.event_time')))
-    contract = json.dumps([args.topic, args.refined_topic, args.allowed_lateness_seconds])
+    schema = StructType([*EVENT_SCHEMA.fields, StructField('_corrupt_record', StringType())])
+    parsed = raw.withColumn('event', F.from_json('value', schema, {
+        'mode': 'PERMISSIVE', 'columnNameOfCorruptRecord': '_corrupt_record'}))
+    parsed = parsed.withColumn('event_ms', F.unix_millis(F.try_to_timestamp('event.event_time')))
+    contract = json.dumps([args.topic, args.refined_topic, args.allowed_lateness_seconds, DECISION_POLICY])
     state_path = root / 'decision.sqlite'
     checkpoint = root / 'decision-checkpoint'
     if (checkpoint / 'commits').exists() and not state_path.exists():
@@ -126,30 +153,35 @@ def decision_worker(spark, args, root):
     def process(batch, batch_id):
         entered = now_ms()
         with closing(decision_state(state_path, contract)) as db, db:
-            latest = db.execute('SELECT batch, last_event_ms FROM completed ORDER BY batch DESC LIMIT 1').fetchone()
-            if latest and latest[0] >= batch_id:
+            latest = db.execute('SELECT MAX(batch) FROM completed').fetchone()[0]
+            if latest is not None and latest >= batch_id:
                 return
-            prior_max = latest[1] if latest else -(2**63)
+            partition_times = dict(db.execute('SELECT partition, last_event_ms FROM partition_clock'))
             outgoing = []
-            batch_max = prior_max
+            updated_partitions = set()
             # The Kafka trigger bounds the batch. Sort locally to avoid a Spark shuffle.
             read_started = now_ms()
             rows = sorted(batch.collect(), key=lambda row: (row.partition, row.offset))
             read_ended = now_ms()
             for row in rows:
                 event = row.event.asDict() if row.event else {}
-                if (not event.get('source') or row.event_ms is None or event['event_seq'] is None
-                        or event['event_seq'] < 0 or event['user_id'] is None or event['product_id'] is None
-                        or event['event_type'] not in ('view', 'cart', 'purchase')
-                        or event['event_id'] != f"{event['source']}:{event['event_seq']}"
-                        or row.key != str(event['user_id'])):
-                    raise ValueError(f'Invalid action at partition {row.partition}, offset {row.offset}')
-                status = classify(db, event, row.event_ms, prior_max, args.allowed_lateness_seconds * 1000)
-                batch_max = max(batch_max, row.event_ms)
+                reason = rejection_reason(event, row.event_ms, row.key)
+                status = INVALID
+                if reason is None:
+                    # Compare only with records already seen in this partition's stable offset order.
+                    prior_max = partition_times.get(row.partition, -(2**63))
+                    status = classify(db, event, row.event_ms, prior_max, args.allowed_lateness_seconds * 1000)
+                    if status == INVALID:
+                        reason = 'conflicting_event_payload'
+                    else:
+                        partition_times[row.partition] = max(prior_max, row.event_ms)
+                        updated_partitions.add(row.partition)
                 message = {'run_id': args.run_id, 'decision_batch': batch_id, 'status': status,
+                           'rejection_reason': reason,
                            'origin_partition': row.partition, 'origin_offset': row.offset,
                            'origin_broker_ms': row.broker_ms, 'decision_ms': now_ms(), **event}
-                outgoing.append((str(event['user_id']), json.dumps(message), row.partition, row.offset))
+                key = row.key if status != INVALID else f'rejected:{row.partition}:{row.offset}'
+                outgoing.append((key, json.dumps(message), row.partition, row.offset))
             if not outgoing:
                 return
             publish_started = now_ms()
@@ -174,7 +206,9 @@ def decision_worker(spark, args, root):
             if args.fail == 'decision-after-publish' and batch_id >= args.fail_decision_after_batch:
                 raise RuntimeError('INJECTED_DECISION_AFTER_PUBLISH')
             # On failed publication SQLite rolls back. A retry may publish copies.
-            db.execute('INSERT INTO completed VALUES (?, ?)', (batch_id, batch_max))
+            db.executemany('INSERT OR REPLACE INTO partition_clock VALUES (?, ?)',
+                           ((partition, partition_times[partition]) for partition in updated_partitions))
+            db.execute('INSERT INTO completed VALUES (?)', (batch_id,))
 
     try:
         run_query(parsed, checkpoint, process, args)
@@ -185,7 +219,8 @@ def decision_worker(spark, args, root):
 
 def refined_rows(frame):
     fields = (', '.join(f'{name} {kind.simpleString()}' for name, kind in EVENT_FIELDS.items())
-              + ', run_id string, decision_batch long, status string, origin_partition int, origin_offset long'
+              + ', run_id string, decision_batch long, status string, rejection_reason string'
+              + ', origin_partition int, origin_offset long'
               + ', origin_broker_ms long, decision_ms long')
     return (frame.select(F.col('partition').alias('refined_partition'), F.col('offset').alias('refined_offset'),
                          F.col('broker_ms').alias('refined_broker_ms'),
@@ -350,7 +385,12 @@ def redis_worker(spark, args, root):
                     computed = now_ms()
                     if apply(keys=[key], args=[event.origin_partition, event.origin_offset, raw or '', payload]):
                         applied += 1
-                        publish_latency(event, lookup_ended, computed, now_ms())
+                        acked = now_ms()
+                        publish_latency(event, lookup_ended, computed, acked)
+                        if args.trace_revisions:
+                            print('DATA06_REDIS_REVISION ' + json.dumps([
+                                event.refined_partition, event.refined_offset, event.user_id, acked,
+                                json.loads(payload)]), flush=True)
                     if args.fail == 'redis-after-first' and applied == 1:
                         raise RuntimeError('INJECTED_REDIS_AFTER_FIRST')
             stats = {'batch': batch_id, 'applied': applied, 'skipped': skipped}
@@ -391,7 +431,11 @@ def delta_worker(spark, args, root):
             refined = refined_rows(batch.where(F.col('topic') == args.refined_topic))
             by_origin = Window.partitionBy('origin_partition', 'origin_offset').orderBy('refined_offset')
             first_copies = refined.withColumn('n', F.row_number().over(by_origin)).where('n = 1').drop('n')
-            delta_merge(first_copies, root / 'refined', ('origin_partition', 'origin_offset'))
+            origin = ('origin_partition', 'origin_offset')
+            delta_merge(first_copies, root / 'refined', origin)
+            rejected = first_copies.where(F.col('status') == INVALID).select(
+                'run_id', *origin, 'origin_broker_ms', 'event_id', 'rejection_reason')
+            delta_merge(rejected, root / 'rejected', origin)
             if args.fail == 'delta-after-write' and not batch.isEmpty():
                 raise RuntimeError('INJECTED_DELTA_AFTER_WRITE')
         finally:
@@ -400,18 +444,29 @@ def delta_worker(spark, args, root):
     run_query(frame, root / 'delta-checkpoint', process, args)
 
 
-def inspect_worker(spark, _args, root):
-    for name in ('raw', 'refined'):
+def inspect_worker(spark, args, root):
+    for name in ('raw', 'refined', 'rejected'):
         path = root / name
         if not (path / '_delta_log').is_dir():
             continue
         if name == 'raw':
             columns = ('partition', 'offset', 'value')
-        else:
+        elif name == 'refined':
             columns = ('origin_partition', 'origin_offset', 'refined_partition', 'refined_offset', 'status', 'event_id')
+        else:
+            columns = ('origin_partition', 'origin_offset', 'event_id', 'rejection_reason')
         data = spark.read.format('delta').load(str(path)).select(*columns).orderBy(*columns[:2])
         for row in data.toLocalIterator():
             print('DATA06_INSPECT ' + json.dumps([name, row.asDict()]), flush=True)
+    if args.trace_revisions:
+        states = {}
+        events = (spark.read.format('delta').load(str(root / 'refined'))
+                  .where("status = 'accepted'").orderBy('refined_partition', 'refined_offset'))
+        for row in events.toLocalIterator():
+            state = next_user_state(states.get(row.user_id, {}), row)
+            states[row.user_id] = state
+            print('DATA06_DELTA_REVISION ' + json.dumps([
+                row.refined_partition, row.refined_offset, row.user_id, state]), flush=True)
 
 
 def bundled_worker(spark, args, root):
@@ -451,6 +506,7 @@ def main():
     parser.add_argument('--redis-direct', action='store_true', help='Use the local Kafka polling Redis sink')
     parser.add_argument('--fail-decision-after-batch', type=int, default=0)
     parser.add_argument('--benchmark-progress', action='store_true', help='Log committed Kafka positions')
+    parser.add_argument('--trace-revisions', action='store_true', help='Trace test states in Redis and from Delta')
     parser.add_argument('--fail', choices=('decision-after-publish', 'redis-after-first',
                                            'delta-before-write', 'delta-after-write'))
     args = parser.parse_args()
@@ -468,6 +524,8 @@ def main():
         parser.error('Redis recovery offsets apply only to the Redis worker')
     if args.redis_direct and (args.stage != 'redis' or not args.continuous or args.fail):
         parser.error('Direct Redis mode requires the continuous Redis worker')
+    if args.trace_revisions and (args.stage not in ('redis', 'inspect') or args.redis_direct or args.redis_batch_writes):
+        parser.error('Revision tracing requires the Spark Redis worker or the Delta inspector')
     args.trigger = args.trigger or ('30 seconds' if args.stage in ('delta', 'bundled') else '1 second')
     root = Path('/state') / 'split' / args.run_id
     root.mkdir(parents=True, exist_ok=True)

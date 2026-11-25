@@ -11,15 +11,18 @@ import pyarrow.compute as pc
 import pyarrow.csv as csv
 import pyarrow.parquet as pq
 
+from data06.event_schema import ACTION_FIELDS
+
 from .data import FIELDS, source_event_id
 
 
-SCHEMA = pa.schema([
-    ('event_id', pa.string()), ('source', pa.string()), ('event_seq', pa.int64()),
-    ('event_time', pa.timestamp('ms', tz='UTC')), ('event_type', pa.string()),
-    ('product_id', pa.int64()), ('category_id', pa.int64()), ('category_code', pa.string()),
-    ('brand', pa.string()), ('price', pa.float64()), ('user_id', pa.int64()), ('user_session', pa.string()),
-])
+PARQUET_TYPES = {
+    'string': pa.string(),
+    'int64': pa.int64(),
+    'float64': pa.float64(),
+    'utc_timestamp_ms': pa.timestamp('ms', tz='UTC'),
+}
+SCHEMA = pa.schema([(name, PARQUET_TYPES[kind]) for name, kind in ACTION_FIELDS])
 DATA_TYPES = {field: SCHEMA.field(field).type for field in FIELDS}
 DATA_TYPES['event_time'] = pa.timestamp('ms')
 

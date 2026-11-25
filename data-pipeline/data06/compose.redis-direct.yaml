@@ -1,0 +1,12 @@
+# The direct Kafka reader imports PySpark types but does not start a Spark session.
+services:
+  spark:
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        for py4j in /opt/spark/python/lib/py4j-*-src.zip; do
+          export PYTHONPATH="$${PYTHONPATH}:/opt/spark/python/lib/pyspark.zip:$${py4j}"
+        done
+        exec python3 -u /opt/data06/stream.py "$$@"
+      - redis-direct

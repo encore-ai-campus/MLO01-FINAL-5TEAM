@@ -1,9 +1,12 @@
 """Replay a November day at 10x and restore the direct Redis sink at midday."""
 import argparse
+import hashlib
 import json
 import subprocess
+import sys
 import time
 from collections import Counter
+from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -17,6 +20,33 @@ from compare_cluster_modes import LOCAL_SPARK
 from run_cluster_check import BOOTSTRAP, COMPOSE, ENV, KAFKA, compose, wait_for_workers
 from run_load_failure_check import compare_sinks
 from verify_refined import markers, percentiles
+
+
+DIRECT_REDIS = COMPOSE + ['-f', str(Path(__file__).with_name('compose.redis-direct.yaml'))]
+LEGACY_OPTIONS = {'delta_batch_size': 1000, 'redis_launcher': 'spark-submit'}
+OPTIMIZED_OPTIONS = {'delta_batch_size': 4000, 'redis_launcher': 'python'}
+
+
+@contextmanager
+def prevent_idle_sleep():
+    if sys.platform != 'win32':
+        yield
+        return
+
+    from ctypes import WinDLL, c_uint32, get_last_error, WinError
+
+    set_execution_state = WinDLL('kernel32', use_last_error=True).SetThreadExecutionState
+    set_execution_state.argtypes = (c_uint32,)
+    set_execution_state.restype = c_uint32
+    continuous = 0x80000000
+    system_required = 0x00000001
+    if not set_execution_state(continuous | system_required):
+        raise WinError(get_last_error())
+    print('Windows idle sleep prevention active for this run', flush=True)
+    try:
+        yield
+    finally:
+        set_execution_state(continuous)
 
 
 def save(path, value):
@@ -52,7 +82,7 @@ def last_offsets(test, worker, phase):
     return offsets(batches[-1]) if batches else {}
 
 
-def wait_offsets(test, workers, phases, target, fallback=None):
+def wait_offsets(test, workers, phases, target, fallback=None, *, milestones=None):
     # Phase completion requires both topics on Delta and the refined topic on Redis.
     deadline = time.monotonic() + 1200
     while time.monotonic() < deadline:
@@ -61,10 +91,14 @@ def wait_offsets(test, workers, phases, target, fallback=None):
             if process.poll() is not None:
                 raise RuntimeError(f'{worker} exited; see the {phases[worker]} log')
             positions[worker] = last_offsets(test, worker, phases[worker]) or (fallback or {}).get(worker, {})
-        if (sum(positions['decision'].get(test.actions, {}).values()) == target
-                and sum(positions['redis'].get(test.refined, {}).values()) == target
-                and positions['delta'].get(test.actions) == positions['decision'].get(test.actions)
+        upstream_done = (sum(positions['decision'].get(test.actions, {}).values()) == target
+                         and sum(positions['redis'].get(test.refined, {}).values()) == target)
+        if upstream_done and milestones is not None:
+            milestones.setdefault('upstream_drained', time.monotonic())
+        if (upstream_done and positions['delta'].get(test.actions) == positions['decision'].get(test.actions)
                 and positions['delta'].get(test.refined) == positions['redis'].get(test.refined)):
+            if milestones is not None:
+                milestones['delta_drained'] = time.monotonic()
             return positions['redis'][test.refined]
         time.sleep(1)
     raise TimeoutError(f'Workers did not reach {target} records: {positions}')
@@ -138,7 +172,7 @@ def latency(test, raw, measured_ids, before_ids):
             'hourly': {hour: summarize(hourly[hour]) for hour in sorted(hourly)}}
 
 
-def run(source, output, day, *, pilot=False, resume_first_drain=None):
+def run(source, output, day, *, pilot=False, resume_first_drain=None, legacy_recovery=False):
     start = datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc)
     if pilot:
         start += timedelta(hours=12, minutes=37)
@@ -154,8 +188,12 @@ def run(source, output, day, *, pilot=False, resume_first_drain=None):
             raise ValueError('Resume requires a previously published, uncompleted first half')
     else:
         report = {'complete': False, 'pilot': pilot, 'window_utc': [start.isoformat(), end.isoformat()], 'speed': 10,
+                  'options': LEGACY_OPTIONS if legacy_recovery else OPTIMIZED_OPTIONS,
                   'counts': inputs(source, folder, start, midpoint, end)}
+        report['input_sha256'] = {name: hashlib.sha256((folder / f'{name}.parquet').read_bytes()).hexdigest()
+                                  for name in report['counts']}
     n = report['counts']
+    options = report.get('options', LEGACY_OPTIONS)
 
     def record(phase):
         report['phase'] = phase
@@ -169,14 +207,17 @@ def run(source, output, day, *, pilot=False, resume_first_drain=None):
     test = Workload(folder, 'check', '30 seconds', n['warm'], n['before'] + n['after'],
                     decision_trigger='500 milliseconds', compose=COMPOSE, bootstrap=BOOTSTRAP,
                     environment=ENV, replication=3, kafka=KAFKA, decision_publisher='driver',
-                    redis_compose=LOCAL_SPARK, redis_direct=True, create_topics=not resume_first_drain)
+                    redis_compose=DIRECT_REDIS if options['redis_launcher'] == 'python' else LOCAL_SPARK,
+                    redis_direct=True, create_topics=not resume_first_drain)
     prefix = f'data06:{test.run_id}:user:'
     phases = {'decision': 'pipeline', 'delta': 'pipeline', 'redis': 'before'}
     stored = {stage: last_offsets(test, stage, phase) for stage, phase in phases.items()} if resume_first_drain else {}
     pipeline_phase = 'pipeline-resumed' if resume_first_drain else 'pipeline'
     if resume_first_drain:
         phases.update({'decision': pipeline_phase, 'delta': pipeline_phase})
-    with test.workers(pipeline_phase, stages=('decision', 'delta')) as (workers, _), redis.Redis(
+    milestones = {}
+    delta_options = {'delta': ('--batch-size', str(options['delta_batch_size']))}
+    with test.workers(pipeline_phase, stages=('decision', 'delta'), stage_options=delta_options) as (workers, _), redis.Redis(
             host='127.0.0.1', port=int(ENV['DATA06_REDIS_PORT']), decode_responses=True, socket_timeout=15) as redis_client:
         if resume_first_drain:
             total_before = n['warm'] + n['before']
@@ -187,7 +228,7 @@ def run(source, output, day, *, pilot=False, resume_first_drain=None):
                 raise ValueError('Kafka must contain exactly the already published first half')
             pause_started = time.monotonic() - (time.time() - max(row[2] for row in raw_before) / 1000)
             # The direct reader is already caught up. Keep it stopped for restoration.
-            boundary = wait_offsets(test, workers, phases, total_before, fallback=stored)
+            boundary = wait_offsets(test, workers, phases, total_before, fallback=stored, milestones=milestones)
         else:
             test.publish('warm', 1_000_000)
             with test.workers('before', stages=('redis',)) as (reader, _):
@@ -196,13 +237,22 @@ def run(source, output, day, *, pilot=False, resume_first_drain=None):
                 publish_segment(test, 'before', duration, {**workers, **reader})
                 pause_started = time.monotonic()
                 record('draining_first_half')
-                boundary = wait_offsets(test, {**workers, **reader}, phases, n['warm'] + n['before'])
+                boundary = wait_offsets(test, {**workers, **reader}, phases, n['warm'] + n['before'],
+                                        milestones=milestones)
 
+        reader_stopped = time.monotonic()
         record('redis_restore')
         previous = snapshot(redis_client, prefix)
         if not previous or redis_client.delete(*previous) != len(previous) or snapshot(redis_client, prefix):
             raise RuntimeError('Could not clear the isolated Redis test keys')
         restore_start = time.monotonic()
+        def elapsed(started, done):
+            return round(max(0, done - started), 3)
+
+        breakdown = {'upstream_drain_seconds': elapsed(pause_started, milestones['upstream_drained']),
+                     'delta_only_wait_seconds': elapsed(milestones['upstream_drained'], milestones['delta_drained']),
+                     'reader_stop_seconds': elapsed(milestones['delta_drained'], reader_stopped),
+                     'snapshot_and_clear_seconds': elapsed(reader_stopped, restore_start)}
         receipt_path = f'/state/split/{test.run_id}/direct-day-recovery.json'
         restore_log = folder / 'restore.log'
         with restore_log.open('wb') as log:
@@ -211,19 +261,27 @@ def run(source, output, day, *, pilot=False, resume_first_drain=None):
                            '--refined-topic', test.refined, '--boundary', json.dumps(boundary),
                            '--redis-url', 'redis://redis:6379/0'], cwd=ROOT, env=ENV, stdout=log,
                            stderr=subprocess.STDOUT, check=True, timeout=1200)
+        restore_finished = time.monotonic()
         receipt, = markers(restore_log.read_text(encoding='utf-8', errors='replace'), 'REDIS_RECOVERY ')
         save(folder / 'recovery.json', receipt)
         if receipt['boundary'] != boundary or snapshot(redis_client, prefix) != previous:
             raise ValueError('Redis restored snapshot differs from the pre-loss state')
+        verified = time.monotonic()
+        breakdown.update({'restore_app_seconds': elapsed(restore_start, restore_finished),
+                          'verify_restored_seconds': elapsed(restore_finished, verified)})
         report['recovery'] = {'keys_restored': len(previous), 'snapshot_matches': True,
                               'seconds': round(time.monotonic() - restore_start, 3),
-                              'boundary': boundary, 'restart_offsets': receipt['restart_offsets']}
+                              'boundary': boundary, 'restart_offsets': receipt['restart_offsets'],
+                              'breakdown': breakdown}
 
         phases['redis'] = 'after'
+        restart_start = time.monotonic()
         with test.workers('after', stages=('redis',), stage_options={
                 'redis': ('--redis-recovery', receipt_path)}) as (reader, _):
             await_reader(test, reader['redis'], receipt['restart_offsets'])
-            report['recovery']['pause_to_resume_seconds'] = round(time.monotonic() - pause_started, 3)
+            ready = time.monotonic()
+            breakdown['reader_restart_seconds'] = elapsed(restart_start, ready)
+            report['recovery']['pause_to_resume_seconds'] = elapsed(pause_started, ready)
             record('replaying_second_half')
             publish_segment(test, 'after', duration, {**workers, **reader})
             record('draining_second_half')
@@ -253,5 +311,8 @@ if __name__ == '__main__':
     parser.add_argument('--day', type=date.fromisoformat, default=date(2019, 11, 17))
     parser.add_argument('--pilot', action='store_true', help='Verify the orchestration over the known 556-event window')
     parser.add_argument('--resume-first-drain', type=Path, help='Continue a fully published first half from its checkpoints')
+    parser.add_argument('--legacy-recovery', action='store_true', help='Use the historical Delta cap and Redis launcher')
     args = parser.parse_args()
-    run(args.source, args.output, args.day, pilot=args.pilot, resume_first_drain=args.resume_first_drain)
+    with prevent_idle_sleep():
+        run(args.source, args.output, args.day, pilot=args.pilot, resume_first_drain=args.resume_first_drain,
+            legacy_recovery=args.legacy_recovery)

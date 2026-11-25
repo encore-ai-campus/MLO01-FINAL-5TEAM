@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import redis
 from kafka import KafkaConsumer, TopicPartition
 
-from refined import REDIS_APPLY, apply_redis_pipeline, now_ms
+from refined import INVALID, REDIS_APPLY, apply_redis_pipeline, now_ms
 
 
 def consume(args, root, recovery):
@@ -60,7 +60,7 @@ def poll(args, recovery, db, source, client):
                 payload = json.loads(record.value)
                 if payload['run_id'] != args.run_id or payload['origin_partition'] != partition.partition:
                     raise ValueError('Refined record belongs to a different run or partition')
-                if payload['status'] not in ('accepted', 'duplicate', 'late'):
+                if payload['status'] not in ('accepted', 'duplicate', 'late', INVALID):
                     raise ValueError('Invalid refined decision')
                 if payload['status'] == 'accepted' and (not recovery or
                         record.offset >= recovery['boundary'][str(partition.partition)]):
