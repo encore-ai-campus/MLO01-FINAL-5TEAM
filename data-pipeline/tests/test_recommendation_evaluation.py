@@ -5,7 +5,7 @@ from reco.pipeline import evaluate
 
 
 class RecommendationEvaluationTests(unittest.TestCase):
-    protocol = {'bootstrap_repeats': 100, 'seed': 42}
+    protocol = {'bootstrap_repeats': 100, 'bootstrap_unit': 'user', 'seed': 42}
 
     def scored(self, request_id, user, *, has_truth=True):
         return {'request_id': request_id, 'user': user, 'has_truth': has_truth, 'ndcg': 0.5}
@@ -32,8 +32,20 @@ class RecommendationEvaluationTests(unittest.TestCase):
             self.assertEqual(metrics['purchase_ndcg_at_10'], 0.5)
         self.assertEqual(
             paired_ci(candidate_rows, baseline_rows, 'ndcg', self.protocol),
-            {'users': 2, 'mean_delta': 0.0, 'ci95': [-1.0, 1.0]},
+            {'unit': 'user', 'users': 2, 'mean_delta': 0.0, 'ci95': [-1.0, 1.0]},
         )
+
+    def test_legacy_settings_record_user_unit_even_when_interval_is_unavailable(self):
+        legacy = {'bootstrap_repeats': 100, 'seed': 42}
+        rows = [self.scored('view-1', 101)]
+        self.assertEqual(
+            paired_ci(rows, rows, 'ndcg', legacy),
+            {'unit': 'user', 'users': 1, 'mean_delta': None, 'ci95': [None, None]},
+        )
+
+    def test_rejects_a_different_bootstrap_unit(self):
+        with self.assertRaisesRegex(ValueError, 'resample by user'):
+            paired_ci([], [], 'ndcg', {**self.protocol, 'bootstrap_unit': 'request'})
 
     def test_rejects_unequal_request_counts_in_either_direction(self):
         matched = [self.scored('view-1', 101)]

@@ -18,7 +18,7 @@ import numpy as np
 from audit_2pct import recent_scores
 from . import cf
 from .core import Event,State,generate,iso,session_for,targets,timestamp
-from .pipeline import evaluate,improvement_ci,predict_all,query_plan,write_json
+from .pipeline import BOOTSTRAP_UNIT,evaluate,improvement_ci,predict_all,query_plan,write_json
 from .store import checksum,code_version
 from .temporal_cf import cutoff_for_time
 
@@ -116,7 +116,8 @@ def paired_ci(a,b,field,protocol):
     # Existing bootstrap groups requests by user; map the chosen metric into it.
     aa=[{**r,'ndcg':r[field]} for r in a]
     bb=[{**r,'ndcg':r[field]} for r in b]
-    return improvement_ci(aa,bb,protocol['bootstrap_repeats'],protocol['seed'])
+    return improvement_ci(aa,bb,protocol['bootstrap_repeats'],protocol['seed'],
+                          unit=protocol.get('bootstrap_unit', BOOTSTRAP_UNIT))
 
 
 def assert_common_popularity(a,b):
@@ -169,7 +170,8 @@ def run(database,output,limit=16000):
         'data_manifest_sha256':checksum(mf),'query_limit':limit,'seed':c['seed'],
         'queries_per_session':3,'query_min_interval_seconds':60,
         'refresh_anchor':START,'refresh_days':7,'arms':{'rolling30':{'mode':'rolling','days':30},'cumulative':{'mode':'cumulative','start':c['cf_history_start']}},
-        'bootstrap_repeats':1000,'primary_metric':'purchase_candidate_recall_at_100',
+        'bootstrap_repeats':1000,'bootstrap_unit':BOOTSTRAP_UNIT,
+        'primary_metric':'purchase_candidate_recall_at_100',
         'secondary_metrics':['purchase_hit_rate_at_10','purchase_ndcg_at_10'],
         'ranker_source':str(source),'ranker_sha256':checksum(source/'ranker.txt'),
         'ranker_retrained':False,'base_config':c,'code_version':code_version(),
@@ -179,6 +181,8 @@ def run(database,output,limit=16000):
     protocol_file=output/'protocol.json'
     if protocol_file.exists():
         old=json.loads(protocol_file.read_text('utf-8'))
+        if old.get('bootstrap_unit', BOOTSTRAP_UNIT) != protocol['bootstrap_unit']:
+            raise ValueError('Frozen bootstrap unit changed; choose a separate output')
         for key in ['data_manifest_sha256','query_limit','code_version','ranker_sha256','baseline_source_sha256','base_config']:
             if old[key]!=protocol[key]:raise ValueError('Frozen evaluation changed; choose a separate output')
         protocol=old
