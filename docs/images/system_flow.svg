@@ -1,0 +1,181 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1560 820" width="1560" height="820" font-family="'Malgun Gothic','Apple SD Gothic Neo','Noto Sans KR',sans-serif" font-size="13" fill="#1F2937">
+  <defs>
+    <marker id="mb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2563EB"/></marker>
+    <marker id="mo" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#EA580C"/></marker>
+    <marker id="mt" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#0D9488"/></marker>
+    <marker id="mp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7C3AED"/></marker>
+  </defs>
+
+  <rect x="0" y="0" width="1560" height="820" fill="#FFFFFF"/>
+  <text x="20" y="38" font-size="20" font-weight="700">요청 경로와 데이터 흐름</text>
+  <text x="20" y="62" font-size="13" fill="#4B5563">실서비스에서는 PostgreSQL, 로그 재생기, 적재·배치·학습(8~10), 객체 저장소가 노트북 클러스터에서, 나머지는 AWS에서 돈다. 번호는 본문 표의 순서다.</text>
+
+  <!-- ===== 열 1: 로그 재생기 ===== -->
+  <rect x="20" y="150" width="150" height="82" rx="8" fill="#FFFBEB" stroke="#D97706" stroke-width="1.5"/>
+  <text x="95" y="178" text-anchor="middle" font-weight="700">로그 재생기</text>
+  <text x="95" y="198" text-anchor="middle" font-size="12" fill="#4B5563">과거 행동 기록을</text>
+  <text x="95" y="215" text-anchor="middle" font-size="12" fill="#4B5563">시간순으로 재생</text>
+
+  <!-- ===== 열 2: Kafka ===== -->
+  <rect x="205" y="112" width="190" height="352" rx="10" fill="#FFFBEB" stroke="#D97706" stroke-width="1.5"/>
+  <text x="300" y="134" text-anchor="middle" font-weight="700">Kafka</text>
+  <rect x="215" y="150" width="170" height="52" rx="6" fill="#FFFFFF" stroke="#D97706"/>
+  <text x="300" y="172" text-anchor="middle" font-weight="600">행동 토픽</text>
+  <text x="300" y="190" text-anchor="middle" font-size="11.5" fill="#4B5563">조회·장바구니·구매</text>
+  <rect x="215" y="240" width="170" height="52" rx="6" fill="#FFFFFF" stroke="#D97706"/>
+  <text x="300" y="262" text-anchor="middle" font-weight="600">정제 토픽</text>
+  <text x="300" y="280" text-anchor="middle" font-size="11.5" fill="#4B5563">판정 결과를 붙인 행동</text>
+  <rect x="215" y="400" width="170" height="52" rx="6" fill="#FFFFFF" stroke="#D97706"/>
+  <text x="300" y="422" text-anchor="middle" font-weight="600">피드백 토픽</text>
+  <text x="300" y="440" text-anchor="middle" font-size="11.5" fill="#4B5563">노출·클릭·예측 기록</text>
+
+  <!-- ===== 열 3: Spark 스트리밍 ===== -->
+  <rect x="430" y="112" width="210" height="352" rx="10" fill="#FFFBEB" stroke="#D97706" stroke-width="1.5"/>
+  <text x="535" y="134" text-anchor="middle" font-weight="700">Spark 스트리밍</text>
+  <rect x="440" y="150" width="190" height="52" rx="6" fill="#FFFFFF" stroke="#D97706"/>
+  <text x="535" y="172" text-anchor="middle" font-weight="600">판정 작업</text>
+  <text x="535" y="190" text-anchor="middle" font-size="11.5" fill="#4B5563">형식 검사·중복·늦음 판정</text>
+  <rect x="440" y="240" width="190" height="52" rx="6" fill="#FFFFFF" stroke="#D97706"/>
+  <text x="535" y="262" text-anchor="middle" font-weight="600">Redis 반영 작업</text>
+  <text x="535" y="280" text-anchor="middle" font-size="11.5" fill="#4B5563">수 초 간격</text>
+  <rect x="440" y="320" width="190" height="52" rx="6" fill="#FFFFFF" stroke="#D97706"/>
+  <text x="535" y="342" text-anchor="middle" font-weight="600">Delta 적재 작업</text>
+  <text x="535" y="360" text-anchor="middle" font-size="11.5" fill="#4B5563">30~60초마다 모아 쓰기</text>
+  <rect x="440" y="400" width="190" height="52" rx="6" fill="#FFFFFF" stroke="#D97706"/>
+  <text x="535" y="422" text-anchor="middle" font-weight="600">피드백 적재 작업</text>
+  <text x="535" y="440" text-anchor="middle" font-size="11.5" fill="#4B5563">중복 제거 후 적재</text>
+
+  <!-- ===== 열 4: 저장소 ===== -->
+  <rect x="690" y="130" width="230" height="72" rx="8" fill="#ECFDF5" stroke="#059669" stroke-width="1.5"/>
+  <text x="805" y="154" text-anchor="middle" font-weight="700">PostgreSQL (주 1·대기 2)</text>
+  <text x="805" y="173" text-anchor="middle" font-size="11.5" fill="#4B5563">상품 정보·상품 관계표</text>
+  <text x="805" y="190" text-anchor="middle" font-size="11.5" fill="#4B5563">예측 기록·사용자 계정</text>
+  <rect x="690" y="230" width="230" height="72" rx="8" fill="#ECFDF5" stroke="#059669" stroke-width="1.5"/>
+  <text x="805" y="256" text-anchor="middle" font-weight="700">Redis</text>
+  <text x="805" y="276" text-anchor="middle" font-size="11.5" fill="#4B5563">온라인 피처 스토어</text>
+  <text x="805" y="292" text-anchor="middle" font-size="11.5" fill="#4B5563">(서빙용 최신 피처)</text>
+  <rect x="690" y="320" width="230" height="132" rx="8" fill="#ECFDF5" stroke="#059669" stroke-width="1.5"/>
+  <text x="805" y="342" text-anchor="middle" font-weight="700">객체 저장소</text>
+  <text x="805" y="358" text-anchor="middle" font-size="10.5" fill="#6B7280">노트북 클러스터의 S3 호환 저장소</text>
+  <text x="805" y="378" text-anchor="middle" font-size="11.5" fill="#4B5563">Delta Lake: 오프라인 피처 스토어</text>
+  <text x="805" y="395" text-anchor="middle" font-size="11.5" fill="#4B5563">(원본·정제·피처 이력, 피드백)</text>
+  <text x="805" y="416" text-anchor="middle" font-size="11.5" fill="#4B5563">원본 기록(Parquet)</text>
+  <text x="805" y="434" text-anchor="middle" font-size="11.5" fill="#4B5563">모델 묶음 파일·현재 버전 정보</text>
+
+  <!-- ===== 열 5: 추천·구매 전환 예측 API ===== -->
+  <rect x="970" y="130" width="200" height="172" rx="10" fill="#EFF6FF" stroke="#2563EB" stroke-width="1.5"/>
+  <text x="1070" y="156" text-anchor="middle" font-weight="700">추천·구매 전환 예측 API</text>
+  <text x="1070" y="174" text-anchor="middle" font-size="12" fill="#4B5563">(FastAPI)</text>
+  <text x="1070" y="204" text-anchor="middle" font-size="11.5" fill="#4B5563">후보 추출 → 순위 결정</text>
+  <text x="1070" y="224" text-anchor="middle" font-size="11.5" fill="#4B5563">구매 확률 → 쿠폰 안내</text>
+  <text x="1070" y="244" text-anchor="middle" font-size="11.5" fill="#4B5563">저장소 장애 시</text>
+  <text x="1070" y="262" text-anchor="middle" font-size="11.5" fill="#4B5563">인기 상품 목록으로 응답</text>
+  <text x="1070" y="288" text-anchor="middle" font-size="11" fill="#6B7280">내부 토큰으로만 호출</text>
+
+  <!-- ===== 열 6: 진입·화면 ===== -->
+  <rect x="1215" y="150" width="150" height="52" rx="8" fill="#EFF6FF" stroke="#2563EB" stroke-width="1.5"/>
+  <text x="1290" y="172" text-anchor="middle" font-weight="700">진입 컨트롤러</text>
+  <text x="1290" y="190" text-anchor="middle" font-size="11.5" fill="#4B5563">외부 공개 주소</text>
+  <rect x="1215" y="240" width="150" height="62" rx="8" fill="#EFF6FF" stroke="#2563EB" stroke-width="1.5"/>
+  <text x="1290" y="264" text-anchor="middle" font-weight="700">화면 서버</text>
+  <text x="1290" y="282" text-anchor="middle" font-size="11.5" fill="#4B5563">(Django)</text>
+  <text x="1290" y="297" text-anchor="middle" font-size="11" fill="#4B5563">쇼핑 화면·로그인</text>
+
+  <!-- ===== 열 7: 사용자 ===== -->
+  <rect x="1405" y="150" width="135" height="52" rx="26" fill="#FFFFFF" stroke="#374151" stroke-width="1.5"/>
+  <text x="1472" y="172" text-anchor="middle" font-weight="700">사용자</text>
+  <text x="1472" y="190" text-anchor="middle" font-size="11.5" fill="#4B5563">(브라우저)</text>
+
+  <!-- ===== 아래: 학습·배포 ===== -->
+  <rect x="430" y="540" width="210" height="104" rx="10" fill="#F5F3FF" stroke="#7C3AED" stroke-width="1.5"/>
+  <text x="535" y="564" text-anchor="middle" font-weight="700">Airflow</text>
+  <text x="535" y="584" text-anchor="middle" font-size="11.5" fill="#4B5563">일 배치·품질 검증·드리프트 집계</text>
+  <text x="535" y="603" text-anchor="middle" font-size="11" fill="#4B5563">(결과는 Redis·PostgreSQL에 씀)</text>
+  <text x="535" y="626" text-anchor="middle" font-size="11.5" fill="#4B5563">재학습: 학습 → 평가 → 교체</text>
+  <rect x="690" y="540" width="230" height="104" rx="10" fill="#F5F3FF" stroke="#7C3AED" stroke-width="1.5"/>
+  <text x="805" y="564" text-anchor="middle" font-weight="700">MLflow</text>
+  <text x="805" y="588" text-anchor="middle" font-size="11.5" fill="#4B5563">모델 등록·버전·평가 기록</text>
+  <text x="805" y="608" text-anchor="middle" font-size="11.5" fill="#4B5563">이전 버전 복원</text>
+  <text x="805" y="628" text-anchor="middle" font-size="11" fill="#6B7280">(모델 파일은 객체 저장소)</text>
+
+  <!-- ===== 모니터링 띠 ===== -->
+  <rect x="20" y="680" width="1520" height="56" rx="8" fill="#F3F4F6" stroke="#9CA3AF" stroke-dasharray="6 4"/>
+  <text x="40" y="713" font-weight="700">모니터링</text>
+  <text x="120" y="713" font-size="12.5" fill="#374151">Prometheus가 모든 구성 요소의 지표(응답 시간, 처리 밀림, 반영 지연, 모델 성능, 드리프트)를 모으고 Grafana가 보여 준다. 기준을 넘으면 알림을 보내고 재학습을 시작한다.</text>
+
+  <!-- ================= 화살표 ================= -->
+  <!-- ① 사용자 → 진입 → 화면 -->
+  <line x1="1405" y1="176" x2="1367" y2="176" stroke="#2563EB" stroke-width="2" marker-end="url(#mb)"/>
+  <line x1="1290" y1="202" x2="1290" y2="238" stroke="#2563EB" stroke-width="2" marker-end="url(#mb)"/>
+  <!-- ② 화면 → API -->
+  <line x1="1215" y1="271" x2="1172" y2="271" stroke="#2563EB" stroke-width="2" marker-end="url(#mb)"/>
+  <!-- ③ API → PostgreSQL, Redis -->
+  <line x1="970" y1="166" x2="922" y2="166" stroke="#2563EB" stroke-width="2" marker-end="url(#mb)"/>
+  <line x1="970" y1="266" x2="922" y2="266" stroke="#2563EB" stroke-width="2" marker-end="url(#mb)"/>
+
+  <!-- ④ 재생기 → 행동 토픽, 화면 → 행동 토픽 -->
+  <line x1="170" y1="176" x2="213" y2="176" stroke="#EA580C" stroke-width="2" marker-end="url(#mo)"/>
+  <path d="M1365,286 H1386 V92 H245 V148" fill="none" stroke="#EA580C" stroke-width="2" marker-end="url(#mo)"/>
+  <!-- ⑤ API → 피드백 토픽 -->
+  <path d="M1130,302 V490 H300 V454" fill="none" stroke="#EA580C" stroke-width="2" marker-end="url(#mo)"/>
+
+  <!-- ⑥ 행동 토픽 → 판정 → 정제 토픽 -->
+  <line x1="385" y1="176" x2="438" y2="176" stroke="#0D9488" stroke-width="2" marker-end="url(#mt)"/>
+  <path d="M460,202 V221 H330 V238" fill="none" stroke="#0D9488" stroke-width="2" marker-end="url(#mt)"/>
+  <!-- ⑦ 정제 토픽 → Redis 반영 → Redis -->
+  <line x1="385" y1="266" x2="438" y2="266" stroke="#0D9488" stroke-width="2" marker-end="url(#mt)"/>
+  <line x1="630" y1="266" x2="688" y2="266" stroke="#0D9488" stroke-width="2" marker-end="url(#mt)"/>
+  <!-- ⑧ 정제 토픽 → Delta 적재, 피드백 토픽 → 피드백 적재 → 객체 저장소 -->
+  <path d="M360,292 V346 H438" fill="none" stroke="#0D9488" stroke-width="2" marker-end="url(#mt)"/>
+  <path d="M215,194 H209 V346 H360" fill="none" stroke="#0D9488" stroke-width="2"/>
+  <line x1="385" y1="426" x2="438" y2="426" stroke="#0D9488" stroke-width="2" marker-end="url(#mt)"/>
+  <line x1="630" y1="346" x2="688" y2="346" stroke="#0D9488" stroke-width="2" marker-end="url(#mt)"/>
+  <line x1="630" y1="426" x2="688" y2="426" stroke="#0D9488" stroke-width="2" marker-end="url(#mt)"/>
+
+  <!-- ⑨ 객체 저장소 → Airflow -->
+  <path d="M720,452 V516 H600 V538" fill="none" stroke="#7C3AED" stroke-width="2" marker-end="url(#mp)"/>
+  <!-- ⑩ Airflow → MLflow -->
+  <line x1="640" y1="600" x2="688" y2="600" stroke="#7C3AED" stroke-width="2" marker-end="url(#mp)"/>
+  <line x1="880" y1="540" x2="880" y2="454" stroke="#7C3AED" stroke-width="2" marker-end="url(#mp)"/>
+  <text x="888" y="526" font-size="11" fill="#4B5563">모델 묶음 발행</text>
+  <!-- ⑪ 객체 저장소 → API (현재 모델 묶음) -->
+  <path d="M920,400 H1060 V304" fill="none" stroke="#7C3AED" stroke-width="2" marker-end="url(#mp)"/>
+
+  <!-- ================= 번호 표시 ================= -->
+  <g font-size="12" font-weight="700" text-anchor="middle" fill="#FFFFFF">
+    <circle cx="1386" cy="162" r="11" fill="#2563EB"/><text x="1386" y="166">1</text>
+    <circle cx="1193" cy="257" r="11" fill="#2563EB"/><text x="1193" y="261">2</text>
+    <circle cx="946" cy="152" r="11" fill="#2563EB"/><text x="946" y="156">3</text>
+    <circle cx="946" cy="252" r="11" fill="#2563EB"/><text x="946" y="256">3</text>
+    <circle cx="191" cy="162" r="11" fill="#EA580C"/><text x="191" y="166">4</text>
+    <circle cx="850" cy="92" r="11" fill="#EA580C"/><text x="850" y="96">4</text>
+    <circle cx="850" cy="490" r="11" fill="#EA580C"/><text x="850" y="494">5</text>
+    <circle cx="411" cy="162" r="11" fill="#0D9488"/><text x="411" y="166">6</text>
+    <circle cx="411" cy="252" r="11" fill="#0D9488"/><text x="411" y="256">7</text>
+    <circle cx="659" cy="252" r="11" fill="#0D9488"/><text x="659" y="256">7</text>
+    <circle cx="411" cy="332" r="11" fill="#0D9488"/><text x="411" y="336">8</text>
+    <circle cx="659" cy="412" r="11" fill="#0D9488"/><text x="659" y="416">8</text>
+    <circle cx="660" cy="516" r="11" fill="#7C3AED"/><text x="660" y="520">9</text>
+    <circle cx="664" cy="586" r="11" fill="#7C3AED"/><text x="664" y="590">10</text>
+    <circle cx="1000" cy="400" r="11" fill="#7C3AED"/><text x="1000" y="404">11</text>
+  </g>
+  <!-- 화살표 옆 짧은 설명 -->
+  <g font-size="11" fill="#4B5563">
+    <text x="868" y="86">화면 행동</text>
+    <text x="892" y="484">노출·클릭·구매 전환 예측 기록</text>
+    <text x="1052" y="352" text-anchor="end">현재 모델 묶음</text><text x="1052" y="368" text-anchor="end">(AWS는 S3 사본)</text>
+    <text x="728" y="528">학습 데이터</text>
+  </g>
+
+  <!-- ================= 범례 ================= -->
+  <g font-size="12" fill="#374151">
+    <line x1="20" y1="772" x2="56" y2="772" stroke="#2563EB" stroke-width="2.5"/><text x="64" y="776">1~3 요청 경로</text>
+    <line x1="190" y1="772" x2="226" y2="772" stroke="#EA580C" stroke-width="2.5"/><text x="234" y="776">4~5 행동·피드백 수집</text>
+    <line x1="400" y1="772" x2="436" y2="772" stroke="#0D9488" stroke-width="2.5"/><text x="444" y="776">6~8 실시간 처리</text>
+    <line x1="580" y1="772" x2="616" y2="772" stroke="#7C3AED" stroke-width="2.5"/><text x="624" y="776">9~11 배치·학습·배포</text>
+    <rect x="800" y="763" width="18" height="18" rx="3" fill="#ECFDF5" stroke="#059669"/><text x="826" y="776">저장소</text>
+    <rect x="890" y="763" width="18" height="18" rx="3" fill="#EFF6FF" stroke="#2563EB"/><text x="916" y="776">서비스</text>
+    <rect x="980" y="763" width="18" height="18" rx="3" fill="#FFFBEB" stroke="#D97706"/><text x="1006" y="776">수집·처리</text>
+    <rect x="1090" y="763" width="18" height="18" rx="3" fill="#F5F3FF" stroke="#7C3AED"/><text x="1116" y="776">학습·배포</text>
+  </g>
+</svg>

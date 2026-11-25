@@ -1,0 +1,184 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1054" width="1400" height="1054" font-family="'Malgun Gothic','Apple SD Gothic Neo','Noto Sans KR',sans-serif" font-size="13" fill="#1F2937">
+  <defs>
+    <marker id="mb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2563EB"/></marker>
+    <marker id="mp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7C3AED"/></marker>
+    <marker id="mg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4B5563"/></marker>
+    <marker id="mo" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#D97706"/></marker>
+  </defs>
+
+  <rect x="0" y="0" width="1400" height="1054" fill="#FFFFFF"/>
+  <text x="20" y="38" font-size="20" font-weight="700">클라우드(AWS) 배치</text>
+  <text x="20" y="62" font-size="13" fill="#4B5563">요청 경로와 실시간 갱신만 AWS의 Kubernetes 클러스터에 두고 시험·발표 기간에만 켠다. PostgreSQL, 데이터 처리, 학습은 강의장 노트북 클러스터에 두고 VPN으로 잇는다.</text>
+
+  <!-- 리전 -->
+  <rect x="160" y="86" width="970" height="808" rx="12" fill="#FAFAFA" stroke="#9CA3AF" stroke-width="1.5"/>
+  <text x="180" y="110" font-weight="700" fill="#374151">AWS 서울 리전 · 가용 영역 1개</text>
+
+  <!-- VPC -->
+  <rect x="190" y="122" width="710" height="758" rx="10" fill="#FFFFFF" stroke="#6B7280" stroke-width="1.5"/>
+  <text x="210" y="144" font-weight="700" fill="#374151">VPC(전용 내부망)</text>
+
+  <!-- 공개 구간 -->
+  <rect x="220" y="156" width="660" height="168" rx="8" fill="#EFF6FF" stroke="#93C5FD" stroke-dasharray="6 4"/>
+  <text x="240" y="178" font-weight="700" fill="#1D4ED8">공개 구간</text>
+
+  <rect x="250" y="190" width="230" height="92" rx="8" fill="#FFFFFF" stroke="#2563EB" stroke-width="1.5"/>
+  <text x="365" y="216" text-anchor="middle" font-weight="700">네트워크 로드밸런서(NLB)</text>
+  <text x="365" y="238" text-anchor="middle" font-size="11.5" fill="#4B5563">AWS 관리형 · 공인 주소</text>
+  <text x="365" y="258" text-anchor="middle" font-size="11.5" fill="#4B5563">진입 컨트롤러 2개로 나눠 보냄</text>
+
+  <rect x="620" y="190" width="240" height="92" rx="8" fill="#FFFFFF" stroke="#4B5563" stroke-width="1.5"/>
+  <text x="740" y="216" text-anchor="middle" font-weight="700">관리 접속 서버</text>
+  <text x="740" y="238" text-anchor="middle" font-size="11.5" fill="#4B5563">팀원의 원격 접속(SSH)만 허용</text>
+  <text x="740" y="258" text-anchor="middle" font-size="11.5" fill="#4B5563">관리 접속은 이 서버만 거친다</text>
+
+  <!-- 비공개 구간 -->
+  <rect x="220" y="344" width="660" height="520" rx="8" fill="#F9FAFB" stroke="#9CA3AF" stroke-dasharray="6 4"/>
+  <text x="240" y="366" font-weight="700" fill="#374151">비공개 구간</text>
+  <text x="450" y="366" font-size="11.5" fill="#6B7280">Kafka·Redis 포트는 VPC 밖으로는 VPN에만 연다</text>
+
+  <!-- 작업 서버 -->
+  <rect x="250" y="378" width="440" height="392" rx="8" fill="#F3F4F6" stroke="#374151" stroke-width="1.5"/>
+  <text x="270" y="401" font-weight="700">작업 서버 3대 이상</text>
+  <text x="420" y="401" font-size="11.5" fill="#6B7280">서버마다 Kafka 브로커 1대와 실시간 작업 파드</text>
+
+  <g font-size="12">
+    <rect x="262" y="414" width="132" height="180" rx="7" fill="#FFFFFF" stroke="#374151" stroke-width="1.3"/>
+    <text x="328" y="433" text-anchor="middle" font-weight="700">작업 서버 1</text>
+    <rect x="272" y="442" width="112" height="24" rx="5" fill="#ECFDF5" stroke="#059669"/><text x="328" y="459" text-anchor="middle">Kafka 브로커</text>
+    <rect x="272" y="472" width="112" height="24" rx="5" fill="#FFFBEB" stroke="#D97706"/><text x="328" y="489" text-anchor="middle">판정 작업 파드</text>
+    <rect x="272" y="502" width="112" height="24" rx="5" fill="#FFFBEB" stroke="#D97706"/><text x="328" y="519" text-anchor="middle">Redis 반영 파드</text>
+    <rect x="272" y="532" width="112" height="24" rx="5" fill="#ECFDF5" stroke="#059669"/><text x="328" y="549" text-anchor="middle">Redis 주</text>
+    <rect x="272" y="562" width="112" height="24" rx="5" fill="#F0FDF4" stroke="#059669" stroke-dasharray="4 3"/><text x="328" y="579" text-anchor="middle">Redis Sentinel</text>
+    <rect x="404" y="414" width="132" height="180" rx="7" fill="#FFFFFF" stroke="#374151" stroke-width="1.3"/>
+    <text x="470" y="433" text-anchor="middle" font-weight="700">작업 서버 2</text>
+    <rect x="414" y="442" width="112" height="24" rx="5" fill="#ECFDF5" stroke="#059669"/><text x="470" y="459" text-anchor="middle">Kafka 브로커</text>
+    <rect x="414" y="472" width="112" height="24" rx="5" fill="#FFFBEB" stroke="#D97706"/><text x="470" y="489" text-anchor="middle">판정 작업 파드</text>
+    <rect x="414" y="502" width="112" height="24" rx="5" fill="#FFFBEB" stroke="#D97706"/><text x="470" y="519" text-anchor="middle">Redis 반영 파드</text>
+    <rect x="414" y="532" width="112" height="24" rx="5" fill="#ECFDF5" stroke="#059669"/><text x="470" y="549" text-anchor="middle">Redis 복제본</text>
+    <rect x="414" y="562" width="112" height="24" rx="5" fill="#F0FDF4" stroke="#059669" stroke-dasharray="4 3"/><text x="470" y="579" text-anchor="middle">Redis Sentinel</text>
+    <rect x="546" y="414" width="132" height="180" rx="7" fill="#FFFFFF" stroke="#374151" stroke-width="1.3"/>
+    <text x="612" y="433" text-anchor="middle" font-weight="700">작업 서버 3</text>
+    <rect x="556" y="442" width="112" height="24" rx="5" fill="#ECFDF5" stroke="#059669"/><text x="612" y="459" text-anchor="middle">Kafka 브로커</text>
+    <rect x="556" y="472" width="112" height="24" rx="5" fill="#FFFBEB" stroke="#D97706"/><text x="612" y="489" text-anchor="middle">판정 작업 파드</text>
+    <rect x="556" y="502" width="112" height="24" rx="5" fill="#FFFBEB" stroke="#D97706"/><text x="612" y="519" text-anchor="middle">Redis 반영 파드</text>
+    <rect x="556" y="562" width="112" height="24" rx="5" fill="#F0FDF4" stroke="#059669" stroke-dasharray="4 3"/><text x="612" y="579" text-anchor="middle">Redis Sentinel</text>
+    <text x="262" y="612" font-size="11" fill="#6B7280">판정 작업과 Redis 반영 작업은 각각 드라이버 1·실행기 2를 서버마다 하나씩 둔다.</text>
+    <text x="262" y="627" font-size="11" fill="#6B7280">Kafka 브로커는 관리 역할을 겸하고, 토픽은 3벌로 복제한다.</text>
+
+    <text x="262" y="652" font-size="11.5" font-weight="600" fill="#374151">서버에 나눠 두는 것</text>
+    <rect x="262" y="660" width="124" height="26" rx="5" fill="#EFF6FF" stroke="#2563EB"/><text x="324" y="678" text-anchor="middle">진입 컨트롤러 ×2</text>
+    <rect x="394" y="660" width="104" height="26" rx="5" fill="#EFF6FF" stroke="#2563EB"/><text x="446" y="678" text-anchor="middle">화면 서버 ×2</text>
+    <rect x="506" y="660" width="172" height="26" rx="5" fill="#EFF6FF" stroke="#2563EB"/><text x="592" y="678" text-anchor="middle">추천·구매 전환 예측 API ×2</text>
+    <rect x="262" y="694" width="90" height="26" rx="5" fill="#F3F4F6" stroke="#6B7280"/><text x="307" y="712" text-anchor="middle">모니터링</text>
+    <rect x="360" y="694" width="110" height="26" rx="5" fill="#F3F4F6" stroke="#6B7280"/><text x="415" y="712" text-anchor="middle">내부 DNS ×2</text>
+    <rect x="478" y="694" width="200" height="26" rx="5" fill="#FFFBEB" stroke="#D97706"/><text x="578" y="712" text-anchor="middle">Spark Operator · 드라이버 재시작</text>
+    <text x="262" y="742" font-size="11" fill="#6B7280">×2인 것은 서로 다른 서버에 둔다.</text>
+    <text x="262" y="757" font-size="11" fill="#6B7280">Sentinel은 Redis 주 서버가 멈추면 복제본을 주 서버로 올린다.</text>
+  </g>
+
+  <!-- 디스크 -->
+  <rect x="250" y="798" width="215" height="54" rx="7" fill="#FFFFFF" stroke="#059669" stroke-width="1.5"/>
+  <text x="358" y="816" text-anchor="middle" font-weight="700" font-size="12.5">블록 디스크(EBS)</text>
+  <text x="358" y="833" text-anchor="middle" font-size="10.5" fill="#4B5563">Kafka 데이터 · Redis 주·복제본 파일</text>
+  <text x="358" y="847" text-anchor="middle" font-size="10.5" fill="#4B5563">Prometheus 데이터</text>
+  <rect x="475" y="798" width="215" height="54" rx="7" fill="#FFFFFF" stroke="#059669" stroke-width="1.5"/>
+  <text x="583" y="819" text-anchor="middle" font-weight="700" font-size="12.5">공유 파일 저장소(EFS)</text>
+  <text x="583" y="839" text-anchor="middle" font-size="11" fill="#4B5563">Spark 체크포인트 · 여러 서버가 함께 씀</text>
+  <text x="716" y="819" font-size="11" fill="#6B7280">서버가 꺼지면 EBS는</text>
+  <text x="716" y="835" font-size="11" fill="#6B7280">같은 가용 영역의 다른</text>
+  <text x="716" y="851" font-size="11" fill="#6B7280">서버에 다시 붙인다</text>
+
+  <!-- 관리 노드 -->
+  <rect x="716" y="378" width="150" height="66" rx="8" fill="#FFFFFF" stroke="#4B5563" stroke-width="1.5"/>
+  <text x="791" y="404" text-anchor="middle" font-weight="700" font-size="12.5">Kubernetes</text>
+  <text x="791" y="422" text-anchor="middle" font-weight="700" font-size="12.5">관리 노드</text>
+  <text x="791" y="438" text-anchor="middle" font-size="10.5" fill="#4B5563">클러스터 상태 관리</text>
+
+  <!-- S3 엔드포인트 -->
+  <rect x="846" y="470" width="108" height="44" rx="6" fill="#FFFFFF" stroke="#7C3AED" stroke-width="1.5"/>
+  <text x="900" y="489" text-anchor="middle" font-size="11.5" font-weight="600">S3 엔드포인트</text>
+  <text x="900" y="505" text-anchor="middle" font-size="10.5" fill="#4B5563">인터넷을 거치지 않음</text>
+
+  <!-- VPN -->
+  <rect x="846" y="590" width="108" height="44" rx="6" fill="#FFFFFF" stroke="#D97706" stroke-width="1.5"/>
+  <text x="900" y="609" text-anchor="middle" font-size="11.5" font-weight="600">VPN 연결점 ×2</text>
+  <text x="900" y="625" text-anchor="middle" font-size="10.5" fill="#4B5563">서로 다른 서버</text>
+
+  <!-- S3 -->
+  <rect x="975" y="410" width="140" height="146" rx="8" fill="#ECFDF5" stroke="#059669" stroke-width="1.5"/>
+  <text x="1045" y="434" text-anchor="middle" font-weight="700">S3</text>
+  <text x="1045" y="460" text-anchor="middle" font-size="11.5" fill="#4B5563">모델 묶음 파일</text>
+  <text x="1045" y="480" text-anchor="middle" font-size="11.5" fill="#4B5563">대체 인기 목록</text>
+  <text x="1045" y="500" text-anchor="middle" font-size="11.5" fill="#4B5563">현재 버전 정보</text>
+  <text x="1045" y="526" text-anchor="middle" font-size="10.5" fill="#6B7280">노트북이 꺼져도</text>
+  <text x="1045" y="541" text-anchor="middle" font-size="10.5" fill="#6B7280">API가 다시 뜰 수 있게</text>
+
+  <!-- 인터넷 게이트웨이 -->
+  <rect x="150" y="196" width="80" height="120" rx="6" fill="#FFFFFF" stroke="#4B5563" stroke-width="1.5"/>
+  <text x="190" y="248" text-anchor="middle" font-size="11.5" font-weight="600">인터넷</text>
+  <text x="190" y="265" text-anchor="middle" font-size="11.5" font-weight="600">게이트웨이</text>
+
+  <!-- 외부 -->
+  <rect x="20" y="210" width="100" height="44" rx="22" fill="#FFFFFF" stroke="#374151" stroke-width="1.5"/>
+  <text x="70" y="237" text-anchor="middle" font-weight="700">사용자</text>
+  <rect x="20" y="276" width="100" height="44" rx="22" fill="#FFFFFF" stroke="#374151" stroke-width="1.5"/>
+  <text x="70" y="303" text-anchor="middle" font-weight="700">팀원(관리)</text>
+
+  <!-- 노트북 클러스터 -->
+  <rect x="1160" y="560" width="225" height="166" rx="8" fill="#FFFBEB" stroke="#D97706" stroke-width="1.5"/>
+  <text x="1272" y="584" text-anchor="middle" font-weight="700">강의장 노트북 클러스터</text>
+  <text x="1272" y="602" text-anchor="middle" font-size="11" fill="#6B7280">상시 가동</text>
+  <g font-size="11.5" fill="#374151" text-anchor="middle">
+    <text x="1272" y="626">PostgreSQL 주 1 · 대기 2</text>
+    <text x="1272" y="646">Spark 적재 · 일 배치</text>
+    <text x="1272" y="666">Airflow · MLflow · 모델 학습</text>
+    <text x="1272" y="686">로그 재생기</text>
+    <text x="1272" y="706">객체 저장소(Delta Lake)</text>
+  </g>
+
+  <!-- ===== 화살표 ===== -->
+  <!-- 사용자 요청 -->
+  <line x1="120" y1="232" x2="148" y2="232" stroke="#2563EB" stroke-width="2" marker-end="url(#mb)"/>
+  <line x1="230" y1="232" x2="248" y2="232" stroke="#2563EB" stroke-width="2" marker-end="url(#mb)"/>
+  <line x1="430" y1="282" x2="430" y2="376" stroke="#2563EB" stroke-width="2" marker-end="url(#mb)"/>
+  <text x="438" y="338" font-size="11" fill="#1D4ED8">화면·API 요청</text>
+
+  <!-- 관리 접속 -->
+  <line x1="120" y1="298" x2="148" y2="298" stroke="#4B5563" stroke-width="1.8" stroke-dasharray="5 4" marker-end="url(#mg)"/>
+  <path d="M230,304 H740 V284" fill="none" stroke="#4B5563" stroke-width="1.8" stroke-dasharray="5 4" marker-end="url(#mg)"/>
+  <path d="M860,236 H886 V360 H791 V376" fill="none" stroke="#4B5563" stroke-width="1.8" stroke-dasharray="5 4" marker-end="url(#mg)"/>
+  <text x="878" y="338" text-anchor="end" font-size="11" fill="#4B5563">원격 접속 · 클러스터 관리</text>
+
+  <!-- 작업 서버 → S3 -->
+  <line x1="690" y1="492" x2="844" y2="492" stroke="#7C3AED" stroke-width="2" marker-end="url(#mp)"/>
+  <text x="767" y="484" text-anchor="middle" font-size="11" fill="#6D28D9">모델 읽기</text>
+  <line x1="954" y1="492" x2="973" y2="492" stroke="#7C3AED" stroke-width="2" marker-end="url(#mp)"/>
+
+  <!-- 작업 서버 ↔ VPN ↔ 노트북 -->
+  <line x1="692" y1="612" x2="844" y2="612" stroke="#D97706" stroke-width="2" marker-start="url(#mo)" marker-end="url(#mo)"/>
+  <text x="767" y="604" text-anchor="middle" font-size="11" fill="#B45309">VPN으로만</text>
+  <line x1="956" y1="612" x2="1158" y2="612" stroke="#D97706" stroke-width="2" stroke-dasharray="6 4" marker-start="url(#mo)" marker-end="url(#mo)"/>
+  <text x="1057" y="604" text-anchor="middle" font-size="11" fill="#B45309">강의장 인터넷</text>
+
+  <!-- 노트북 → S3 -->
+  <path d="M1272,558 V475 H1117" fill="none" stroke="#D97706" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#mo)"/>
+  <text x="1280" y="520" font-size="11" fill="#B45309">모델 묶음</text>
+  <text x="1280" y="535" font-size="11" fill="#B45309">발행</text>
+
+  <!-- VPN으로 오가는 것 -->
+  <rect x="160" y="910" width="1225" height="76" rx="8" fill="#F9FAFB" stroke="#D1D5DB"/>
+  <text x="180" y="934" font-weight="700">VPN으로 오가는 것</text>
+  <g font-size="12" fill="#374151">
+    <text x="180" y="956">· 노트북에서 AWS로: 재생기가 보내는 행동(→ Kafka), 일 배치의 집계 피처(→ Redis), 화면 서버·API가 조회하는 PostgreSQL 데이터</text>
+    <text x="180" y="976">· AWS에서 노트북으로: 적재 작업이 읽어 가는 Kafka의 행동·정제·피드백 토픽(→ Delta Lake). AWS 밖으로 나가는 전송 요금은 주로 이 양에 붙는다.</text>
+  </g>
+
+  <!-- 범례 -->
+  <g font-size="12" fill="#374151">
+    <line x1="20" y1="1028" x2="56" y2="1028" stroke="#2563EB" stroke-width="2"/><text x="64" y="1032">사용자 요청</text>
+    <line x1="170" y1="1028" x2="206" y2="1028" stroke="#7C3AED" stroke-width="2"/><text x="214" y="1032">모델 파일</text>
+    <line x1="320" y1="1028" x2="356" y2="1028" stroke="#4B5563" stroke-width="1.8" stroke-dasharray="5 4"/><text x="364" y="1032">관리 접속</text>
+    <line x1="470" y1="1028" x2="506" y2="1028" stroke="#D97706" stroke-width="2" stroke-dasharray="6 4"/><text x="514" y="1032">노트북 클러스터와 주고받음</text>
+  </g>
+</svg>
