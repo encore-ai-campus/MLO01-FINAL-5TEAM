@@ -1,0 +1,55 @@
+services:
+  kafka:
+    image: apache/kafka:3.9.1
+    user: "0:0"
+    ports:
+      - "127.0.0.1:${DATA06_KAFKA_PORT:-39092}:39092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,HOST://0.0.0.0:39092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,HOST://127.0.0.1:${DATA06_KAFKA_PORT:-39092}
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,HOST:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG_DIRS: /tmp/kraft-combined-logs
+      KAFKA_HEAP_OPTS: -Xms256m -Xmx512m
+    volumes:
+      - kafka:/tmp/kraft-combined-logs
+    healthcheck:
+      test: ["CMD", "/opt/kafka/bin/kafka-broker-api-versions.sh", "--bootstrap-server", "localhost:9092"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:${DATA06_REDIS_PORT:-36379}:6379"
+    volumes:
+      - redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+  spark:
+    build: .
+    profiles: ["worker"]
+    volumes:
+      - state:/state
+    environment:
+      PYTHONPATH: /opt/data06-python
+      SPARK_LOCAL_IP: 127.0.0.1
+    entrypoint: ["/opt/spark/bin/spark-submit", "--master", "local[2]", "--driver-memory", "1g",
+                 "--conf", "spark.jars.ivySettings=/opt/data06/ivy.xml",
+                 "--conf", "spark.jars.ivy=/state/ivy",
+                 "--packages", "io.delta:delta-spark_2.13:4.0.0,org.apache.spark:spark-sql-kafka-0-10_2.13:4.0.1",
+                 "/opt/data06/stream.py"]
+volumes:
+  kafka:
+  redis:
+  state:

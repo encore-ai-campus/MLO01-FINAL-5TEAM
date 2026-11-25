@@ -1,0 +1,19 @@
+{
+  "candidate_policy_file": "config-rolling30.json",
+  "session_gap_seconds": 1800,
+  "session_gap_boundary": "over",
+  "ranking_mode": "cart_recent_purchase_popularity",
+  "demo_ranking_mode": "protected_interest_then_lightgbm",
+  "demo_model_config": "config-initial-hybrid.json",
+  "demo_prior_visit_candidate_limit": 10,
+  "first_cutoff": "2019-11-01T00:00:00Z",
+  "precheck": {
+    "baseline_cutoff": "2019-10-18T00:00:00Z",
+    "candidate_cutoff": "2019-10-25T00:00:00Z",
+    "start": "2019-10-25T00:00:00Z",
+    "end": "2019-11-01T00:00:00Z"
+  },
+  "common_evaluation_month": ["2019-12-01T00:00:00Z", "2020-01-01T00:00:00Z"],
+  "common_evaluation_status": "reference_only",
+  "min_purchase_queries": 100
+}
