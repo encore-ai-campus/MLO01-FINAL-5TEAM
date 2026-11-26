@@ -14,7 +14,7 @@ import pyarrow.parquet as pq
 from kafka import KafkaProducer
 from kafka.admin import KafkaAdminClient, NewTopic
 
-from benchmark_refined import BOOTSTRAP, COMPOSE, ENVIRONMENT, ROOT, read_topic
+from benchmark_refined import BOOTSTRAP, COMPOSE, ENVIRONMENT, ROOT, event_topic_configs, read_topic
 from reco.replay_parquet import events_in_order
 from verify import redis_expected
 from verify_refined import compare_delta, markers, on_wire
@@ -103,7 +103,7 @@ def verify(output, workload, batch_history, bootstrap_report):
 
     execute('00-kafka', COMPOSE + ['up', '-d', '--wait', 'kafka'])
     with closing(KafkaAdminClient(bootstrap_servers=BOOTSTRAP)) as admin:
-        admin.create_topics([NewTopic(name, 2, 1) for name in topics])
+        admin.create_topics([NewTopic(name, 2, 1, topic_configs=event_topic_configs(1)) for name in topics])
     execute('01-dedicated-redis', ['docker', 'run', '--rm', '-d', '--name', run_id,
                                   '--network', 'mlo-data06-split_default',
                                   '--publish', '127.0.0.1::6379', 'redis:8.2-alpine'])

@@ -13,7 +13,7 @@ x-kafka-env: &kafka-env
   KAFKA_HEAP_OPTS: -Xms256m -Xmx512m
 
 x-kafka: &kafka
-  image: apache/kafka:3.9.1
+  image: ${DATA06_KAFKA_IMAGE:-apache/kafka:4.4.0}
   user: '0:0'
   healthcheck:
     test: [CMD, /opt/kafka/bin/kafka-broker-api-versions.sh, --bootstrap-server, 'localhost:9092']
@@ -22,7 +22,7 @@ x-kafka: &kafka
     retries: 16
 
 x-worker: &worker
-  image: mlo-data06-split-spark:latest
+  image: ${DATA06_SPARK_IMAGE:-mlo-data06-split-spark:4.2.0}
   user: '0:0'
   environment:
     SPARK_WORKER_CORES: '3'
@@ -62,7 +62,7 @@ services:
   redis:
     extends: {file: compose.yaml, service: redis}
   spark-master:
-    image: mlo-data06-split-spark:latest
+    image: ${DATA06_SPARK_IMAGE:-mlo-data06-split-spark:4.2.0}
     ports: ['127.0.0.1:38089:8080']
     entrypoint: [/opt/spark/bin/spark-class, org.apache.spark.deploy.master.Master, --host, spark-master]
   spark-worker-1:
@@ -72,17 +72,18 @@ services:
     <<: *worker
     hostname: spark-worker-2
   spark:
-    image: mlo-data06-split-spark:latest
+    image: ${DATA06_SPARK_IMAGE:-mlo-data06-split-spark:4.2.0}
     profiles: [driver]
     user: '0:0'
     volumes: [state:/state]
     environment:
-      PYTHONPATH: /opt/data06-python
+      PYTHONPATH: /opt/data06-python:/opt/data06
+      DATA06_DECISION_STATE_STORE: ${DATA06_DECISION_STATE_STORE:-spark}
     entrypoint: [/opt/spark/bin/spark-submit, --master, 'spark://spark-master:7077', --driver-memory, 1g,
                  --executor-memory, 768m, --executor-cores, '1', --total-executor-cores, '2',
                  --conf, spark.driver.bindAddress=0.0.0.0,
                  --conf, spark.jars.ivySettings=/opt/data06/ivy.xml, --conf, spark.jars.ivy=/state/ivy,
-                 --packages, 'io.delta:delta-spark_2.13:4.0.0,org.apache.spark:spark-sql-kafka-0-10_2.13:4.0.1',
+                 --packages, '${DATA06_SPARK_PACKAGES:-io.delta:delta-spark_2.13:4.4.1,org.apache.spark:spark-sql-kafka-0-10_2.13:4.2.0}',
                  /opt/data06/stream.py]
 
 volumes:

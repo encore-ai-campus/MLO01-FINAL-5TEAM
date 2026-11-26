@@ -29,7 +29,8 @@ def seed_users(spark, root):
 
 def bootstrap(spark, args, root):
     path = root / 'bootstrap_history'
-    if any((root / name / 'commits').exists() for name in ('redis-checkpoint', 'decision-checkpoint')):
+    if any((root / name / 'commits').exists() for name in (
+            'redis-checkpoint', 'decision-checkpoint', 'decision-spark-checkpoint')):
         raise ValueError('Bootstrap must run before the replay workers')
     source = spark.read.parquet(*args.bootstrap_input)
     replay_time = utc_string(args.start)

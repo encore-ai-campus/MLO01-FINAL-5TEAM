@@ -23,10 +23,16 @@ from verify_refined import markers, percentiles
 
 
 WORKERS = ('decision', 'redis', 'delta')
-BOOTSTRAP = '127.0.0.1:39192'
-ENVIRONMENT = {**os.environ, 'DATA06_KAFKA_PORT': '39192', 'DATA06_REDIS_PORT': '36479'}
-COMPOSE = ['docker', 'compose', '-p', 'mlo-data06-split', '-f', str(Path(__file__).with_name('compose.yaml'))]
+ENVIRONMENT = {**os.environ, 'DATA06_KAFKA_PORT': os.getenv('DATA06_KAFKA_PORT', '39192'),
+               'DATA06_REDIS_PORT': os.getenv('DATA06_REDIS_PORT', '36479')}
+BOOTSTRAP = '127.0.0.1:' + ENVIRONMENT['DATA06_KAFKA_PORT']
+COMPOSE = ['docker', 'compose', '-p', os.getenv('DATA06_BENCHMARK_PROJECT', 'mlo-data06-split'),
+           '-f', str(Path(__file__).with_name('compose.yaml'))]
 PROGRESS = 'DATA07_SPLIT '
+
+
+def event_topic_configs(replication):
+    return {'message.timestamp.type': 'LogAppendTime', 'min.insync.replicas': str(min(replication, 2))}
 
 
 def wall_ms():
@@ -123,8 +129,7 @@ class Workload:
         self.compose, self.bootstrap, self.environment, self.kafka = compose, bootstrap, environment, kafka
         if create_topics:
             with closing(KafkaAdminClient(bootstrap_servers=bootstrap)) as admin:
-                admin.create_topics([NewTopic(name, 2, replication, topic_configs={
-                    'message.timestamp.type': 'LogAppendTime', 'min.insync.replicas': str(min(replication, 2))})
+                admin.create_topics([NewTopic(name, 2, replication, topic_configs=event_topic_configs(replication))
                                      for name in (self.actions, self.refined)])
 
     def publish(self, file, speed, *, timeout=300, supervise=None):
@@ -321,6 +326,11 @@ class Workload:
 
 
 def benchmark(options):
+    target_eps = None
+    if options.target_config:
+        target_eps = json.loads(options.target_config.read_text(encoding='utf-8-sig'))['T-THR-01']
+        if type(target_eps) not in (int, float) or not math.isfinite(target_eps) or target_eps <= 0:
+            raise ValueError('T-THR-01 must be a positive finite number of events per second')
     folder = options.output.resolve() / ('split07-' + uuid.uuid4().hex[:8])
     folder.mkdir(parents=True)
     subprocess.run(COMPOSE + ['up', '-d', '--wait', 'kafka', 'redis'], env=ENVIRONMENT, check=True, timeout=100)
@@ -345,6 +355,12 @@ def benchmark(options):
             test.publish('workload', speed)
             progress = test.wait(workers, 'live', warm + size)
         row = test.summarize(speed, progress)
+        if target_eps is not None:
+            report['throughput_target_eps'] = target_eps
+            row['stage_effective_eps_minus_target'] = {
+                stage: round(result['effective_eps'] - target_eps, 2)
+                for stage, result in row['stages'].items()
+            }
         report['runs'].append(row)
         record()
         print(json.dumps(row), flush=True)
@@ -374,6 +390,7 @@ if __name__ == '__main__':
     parser.add_argument('--speeds', type=int, nargs='+', default=[2, 6, 12, 24])
     parser.add_argument('--restart-speed', type=int, default=24)
     parser.add_argument('--delta-trigger', default='5 seconds')
+    parser.add_argument('--target-config', type=Path, help='JSON export of the budget target, {"T-THR-01": events_per_second}')
     args = parser.parse_args()
     if min(*args.speeds, args.restart_speed) < 1:
         parser.error('Replay speeds must be positive')

@@ -2,7 +2,7 @@ services:
   spark:
     entrypoint: [/opt/spark/bin/spark-submit, --master, 'local[2]', --driver-memory, 1g,
                  --conf, spark.jars.ivySettings=/opt/data06/ivy.xml, --conf, spark.jars.ivy=/state/ivy,
-                 --packages, 'io.delta:delta-spark_2.13:4.0.0,org.apache.spark:spark-sql-kafka-0-10_2.13:4.0.1',
+                 --packages, '${DATA06_SPARK_PACKAGES:-io.delta:delta-spark_2.13:4.4.1,org.apache.spark:spark-sql-kafka-0-10_2.13:4.2.0}',
                  /opt/data06/stream.py]
     environment:
       SPARK_LOCAL_IP: 127.0.0.1

@@ -1,6 +1,6 @@
 services:
   kafka:
-    image: apache/kafka:3.9.1
+    image: ${DATA06_KAFKA_IMAGE:-apache/kafka:4.4.0}
     user: "0:0"
     ports:
       - "127.0.0.1:${DATA06_KAFKA_PORT:-39092}:39092"
@@ -28,7 +28,7 @@ services:
       retries: 12
       start_period: 10s
   redis:
-    image: redis:7.4-alpine
+    image: ${DATA06_REDIS_IMAGE:-redis:8.2.11-alpine}
     command: ["redis-server", "--appendonly", "yes"]
     ports:
       - "127.0.0.1:${DATA06_REDIS_PORT:-36379}:6379"
@@ -37,17 +37,19 @@ services:
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
   spark:
+    image: ${DATA06_SPARK_IMAGE:-mlo-data06-split-spark:4.2.0}
     build: .
     profiles: ["worker"]
     volumes:
       - state:/state
     environment:
-      PYTHONPATH: /opt/data06-python
+      PYTHONPATH: /opt/data06-python:/opt/data06
+      DATA06_DECISION_STATE_STORE: ${DATA06_DECISION_STATE_STORE:-spark}
       SPARK_LOCAL_IP: 127.0.0.1
     entrypoint: ["/opt/spark/bin/spark-submit", "--master", "local[2]", "--driver-memory", "1g",
                  "--conf", "spark.jars.ivySettings=/opt/data06/ivy.xml",
                  "--conf", "spark.jars.ivy=/state/ivy",
-                 "--packages", "io.delta:delta-spark_2.13:4.0.0,org.apache.spark:spark-sql-kafka-0-10_2.13:4.0.1",
+                 "--packages", "${DATA06_SPARK_PACKAGES:-io.delta:delta-spark_2.13:4.4.1,org.apache.spark:spark-sql-kafka-0-10_2.13:4.2.0}",
                  "/opt/data06/stream.py"]
 volumes:
   kafka:

@@ -12,7 +12,7 @@ from pathlib import Path
 from kafka import KafkaProducer
 from kafka.admin import KafkaAdminClient, NewTopic
 
-from benchmark_refined import BOOTSTRAP, COMPOSE, ENVIRONMENT, ROOT
+from benchmark_refined import BOOTSTRAP, COMPOSE, ENVIRONMENT, ROOT, event_topic_configs
 from reco.prediction_labels import build_labels, read_visits, visit_events, write_labels
 from reco.store import checksum
 from reco.team_replay import data_receipt
@@ -75,7 +75,7 @@ def run(database, tables, destination):
     inputs, expected = fixture(database, visits, run_id)
     command('01-kafka', ['up', '-d', '--wait', 'kafka'])
     with closing(KafkaAdminClient(bootstrap_servers=BOOTSTRAP)) as admin:
-        admin.create_topics([NewTopic(run_id, 2, 1)])
+        admin.create_topics([NewTopic(run_id, 2, 1, topic_configs=event_topic_configs(1))])
     with closing(KafkaProducer(bootstrap_servers=BOOTSTRAP, acks='all', enable_idempotence=True)) as producer:
         for record in inputs + inputs[:1]:
             producer.send(run_id, key=record['log_id'].encode(), value=json.dumps(record).encode()).get(timeout=15)
