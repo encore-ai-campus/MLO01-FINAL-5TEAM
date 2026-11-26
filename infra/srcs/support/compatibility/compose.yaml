@@ -1,0 +1,44 @@
+services:
+  spark:
+    image: final-project/spark:4.2.0-ubuntu24.04
+    build:
+      context: .
+      target: spark
+    stdin_open: true
+    tty: true
+  airflow:
+    image: final-project/airflow:3.4.0-ubuntu24.04
+    build:
+      context: .
+      target: airflow
+    ports: ["127.0.0.1:8080:8080"]
+    volumes: ["airflow:/home/ubuntu/airflow"]
+  postgres:
+    image: pgvector/pgvector:0.8.7-pg18-bookworm
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+    volumes:
+      - pgdata:/var/lib/postgresql
+      - ./init-vector.sql:/docker-entrypoint-initdb.d/10-vector.sql:ro
+  prometheus:
+    image: prom/prometheus:v3.16.0
+    ports: ["127.0.0.1:9090:9090"]
+    volumes: ["metrics:/prometheus"]
+  grafana:
+    image: grafana/grafana:13.3.1
+    ports: ["127.0.0.1:3000:3000"]
+    volumes: ["grafana:/var/lib/grafana"]
+  k3s:
+    profiles: ["k3s"]
+    image: rancher/k3s:v1.36.6-k3s1
+    command: server
+    privileged: true
+    tmpfs: ["/run", "/var/run"]
+    ports: ["127.0.0.1:6443:6443"]
+    volumes: ["k3s:/var/lib/rancher/k3s"]
+volumes:
+  airflow:
+  pgdata:
+  metrics:
+  grafana:
+  k3s:
