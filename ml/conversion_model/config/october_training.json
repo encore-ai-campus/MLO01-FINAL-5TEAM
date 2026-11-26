@@ -1,0 +1,8 @@
+{
+  "training_period_utc": ["2019-10-01T00:00:00Z", "2019-10-21T00:00:00Z"],
+  "validation_period_utc": ["2019-10-21T00:00:00Z", "2019-10-27T00:00:00Z"],
+  "development_evaluation_period_utc": ["2019-10-27T00:00:00Z", "2019-11-01T00:00:00Z"],
+  "sample_bps": 200,
+  "logistic_c": 0.1,
+  "lightgbm_seed": 42
+}

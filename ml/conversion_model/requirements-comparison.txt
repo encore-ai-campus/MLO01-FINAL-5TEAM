@@ -1,0 +1,4 @@
+-r requirements.txt
+lightgbm==4.7.0
+narwhals==2.29.0
+scipy==1.16.3
