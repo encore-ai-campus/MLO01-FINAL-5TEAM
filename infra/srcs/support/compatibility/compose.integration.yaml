@@ -1,0 +1,22 @@
+name: data-stack-integration
+services:
+  kafka:
+    image: apache/kafka:4.4.0
+    healthcheck:
+      test: ["CMD", "/opt/kafka/bin/kafka-topics.sh", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 5s
+      timeout: 10s
+      retries: 24
+  verify:
+    image: final-project/spark:4.2.0-ubuntu24.04
+    pull_policy: never
+    network_mode: service:kafka
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      SPARK_LOCAL_IP: 127.0.0.1
+      PYTHONDONTWRITEBYTECODE: "1"
+    volumes:
+      - ./integration.py:/opt/stack/integration.py:ro
+    command: ["spark-submit", "--master", "local[1]", "/opt/stack/integration.py"]
