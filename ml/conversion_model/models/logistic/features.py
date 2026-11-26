@@ -1,14 +1,14 @@
 """Build order features using only the observed actions in the current visit."""
 
 from collections import deque
-from datetime import datetime, timedelta
 from functools import lru_cache
 from itertools import product
 from typing import NamedTuple
 
+from libs.features.purchase_sequence import ACTIONS, HISTORY_SIZE, utc_datetime
+from libs.features.purchase_sequence import describe_actions as describe
+from libs.features.purchase_sequence import sequence_inputs as shared_sequence_inputs
 
-HISTORY_SIZE = 5
-ACTIONS = ('view', 'cart')
 NUMERIC = ('sequence_actions', 'same_product_view_run', 'product_switch_rate')
 BINARY = ('returned_to_product',)
 CATEGORIES = {
@@ -21,58 +21,15 @@ CUMULATIVE_NUMERIC = NUMERIC + ('view_count', 'distinct_product_count', 'cart_co
 CUMULATIVE_COLUMNS = CUMULATIVE_NUMERIC + COLUMNS[len(NUMERIC):]
 
 
-def utc_datetime(value):
-    """Read an explicit UTC timestamp from the team data contract."""
-    if not isinstance(value, str):
-        raise ValueError('Expected a UTC timestamp')
-    parsed = datetime.fromisoformat(value)
-    if parsed.utcoffset() != timedelta(0):
-        raise ValueError('Expected a UTC timestamp')
-    return parsed
-
-
 def sequence_inputs(actions, *, event_time, sequence, legacy_ids=False):
-    """Calculate the six v1 inputs from a single visit's recent actions."""
-    if not isinstance(actions, list) or not 1 <= len(actions) <= HISTORY_SIZE:
-        raise ValueError('Provide one to five recent actions')
-    keys, observed = [], []
-    for action in actions:
-        if not isinstance(action, dict):
-            raise ValueError('Each action must be an object')
-        product_id, event_type, order = (action.get(key) for key in ('product_id', 'event_type', 'sequence'))
-        if (not (isinstance(product_id, str) or (legacy_ids and type(product_id) is int)) or str(product_id).strip() == ''
-                or event_type not in ACTIONS or type(order) is not int or order < 0):
-            raise ValueError('Invalid product, action type or sequence number')
-        keys.append((utc_datetime(action.get('event_time_utc')), order))
-        observed.append(_Action(event_type, str(product_id)))
-    current_key = (utc_datetime(event_time), sequence)
-    if type(sequence) is not int or len(set(keys)) != len(keys) or max(keys) != current_key:
-        raise ValueError('Recent actions must end at the requested action and have distinct ordering keys')
-    return describe([item for _, item in sorted(zip(keys, observed), key=lambda pair: pair[0])])
-
-
-def describe(history):
-    current = history[-1]
-    run = 0
-    for action in reversed(history):
-        if action.event_type != 'view' or action.product_id != current.product_id:
-            break
-        run += 1
-    products = [action.product_id for action in history]
-    switches = sum(a != b for a, b in zip(products, products[1:]))
-    last_pair = 'start'
-    if len(history) > 1:
-        previous = history[-2]
-        relation = 'same' if previous.product_id == current.product_id else 'other'
-        last_pair = f'{previous.event_type}_{current.event_type}_{relation}'
-    symbols = {}
-    pattern = ''.join(symbols.setdefault(item, chr(65 + len(symbols))) for item in products[-3:])
-    returned = any(action.event_type == 'view' and action.product_id == current.product_id
-                   and any(item != current.product_id for item in products[index + 1:-1])
-                   for index, action in enumerate(history) if index < len(history) - 1)
-    return dict(zip(NUMERIC + BINARY + tuple(CATEGORIES),
-                    (len(history), run, switches / (len(history) - 1) if len(history) > 1 else 0,
-                     int(returned), last_pair, pattern), strict=True))
+    """Adapt historical numeric product IDs to the shared input contract."""
+    if legacy_ids and isinstance(actions, list):
+        actions = [
+            {**action, 'product_id': str(action['product_id'])}
+            if isinstance(action, dict) and type(action.get('product_id')) is int else action
+            for action in actions
+        ]
+    return shared_sequence_inputs(actions, event_time=event_time, sequence=sequence)
 
 
 class _Action(NamedTuple):
