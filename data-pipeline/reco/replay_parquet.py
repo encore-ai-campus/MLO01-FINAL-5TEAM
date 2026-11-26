@@ -10,6 +10,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from time import monotonic
 
+if not __package__:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from data06 import event_schema as fields
+
 
 class ReplayClock:
     def __init__(self, start, speed, now=monotonic):
@@ -79,13 +83,13 @@ def events_in_order(source):
     previous = None
     for batch in pq.ParquetFile(source).iter_batches(batch_size=8192):
         for event in batch.to_pylist():
-            event_time = event['event_time']
-            sequence = event['event_seq']
-            if event_time is None or sequence is None or not event['source']:
-                raise ValueError(f"Missing replay order fields at {event['event_id']}")
-            key = (event_time, event['source'], sequence)
+            event_time = event[fields.EVENT_TIME]
+            sequence = event[fields.SOURCE_ROW]
+            if event_time is None or sequence is None or not event[fields.SOURCE_FILE]:
+                raise ValueError(f"Missing replay order fields at {event[fields.EVENT_ID]}")
+            key = (event_time, event[fields.SOURCE_FILE], sequence)
             if previous is not None and key <= previous:
-                raise ValueError(f"Events are out of order or repeated at {event['event_id']}")
+                raise ValueError(f"Events are out of order or repeated at {event[fields.EVENT_ID]}")
             previous = key
             yield event
 
@@ -132,7 +136,7 @@ def replay(source, output, speed, max_events=None, start=None, end=None, interac
     output_context = Path(output).open('x', encoding='utf-8', newline='\n') if output is not None else nullcontext()
     with output_context as stream:
         for event in events_in_order(source):
-            event_time = event['event_time']
+            event_time = event[fields.EVENT_TIME]
             if start is not None and event_time < start:
                 continue
             if end is not None and event_time >= end:
@@ -142,7 +146,7 @@ def replay(source, output, speed, max_events=None, start=None, end=None, interac
                 log({'stage': 'started', **clock.status()})
                 if interactive:
                     threading.Thread(target=control_from_stdin, args=(clock, sys.stdin), daemon=True).start()
-            row = {**event, 'event_time': event_time.isoformat()}
+            row = {**event, fields.EVENT_TIME: event_time.isoformat()}
 
             def emit():
                 if sink is None:
@@ -168,31 +172,43 @@ def utc_time(value):
 
 
 def replay_to_kafka(args):
-    from kafka import KafkaProducer
+    from confluent_kafka import KafkaException, Producer
 
     if args.kafka_in_flight < 1:
         raise ValueError('Kafka in-flight queue must be positive')
-    producer = KafkaProducer(bootstrap_servers=args.kafka_bootstrap, acks='all', enable_idempotence=True,
-                             linger_ms=5 if args.kafka_in_flight > 1 else 0)
+    producer = Producer({'bootstrap.servers': args.kafka_bootstrap, 'acks': 'all', 'enable.idempotence': True,
+                         'partitioner': 'murmur2_random',
+                         'linger.ms': 5 if args.kafka_in_flight > 1 else 0, 'delivery.timeout.ms': 30000})
     pending = deque()
-    try:
-        def send(event):
-            # Split workers require stable per-user order. Legacy workers still use one partition and event IDs.
-            user_key = getattr(args, 'kafka_user_key', False)
-            key = str(event['user_id']) if user_key else event['event_id']
-            pending.append(producer.send(args.kafka_topic, key=key.encode('utf-8'), partition=None if user_key else 0,
-                                         value=json.dumps(event, ensure_ascii=False).encode('utf-8')))
-            if len(pending) >= args.kafka_in_flight:
-                pending.popleft().get(timeout=30)
 
+    def await_delivery():
+        result = pending.popleft()
+        while not result:
+            producer.poll(.2)
+        if result[0] is not None:
+            raise KafkaException(result[0])
+
+    def send(event):
+        # Match Java/Spark's keyed partitioner so changing clients does not move previously routed users.
+        user_key = getattr(args, 'kafka_user_key', False)
+        key = str(event[fields.USER_ID]) if user_key else event[fields.EVENT_ID]
+        result = []
+        producer.produce(args.kafka_topic, key=key.encode('utf-8'), partition=-1 if user_key else 0,
+                         value=json.dumps(event, ensure_ascii=False).encode('utf-8'),
+                         on_delivery=lambda error, _: result.append(error))
+        pending.append(result)
+        if len(pending) >= args.kafka_in_flight:
+            await_delivery()
+
+    try:
         count = replay(args.source, None, args.speed, args.max_events, args.start, args.end,
                        args.interactive, sink=send)
         while pending:
-            pending.popleft().get(timeout=30)
+            await_delivery()
         log({'stage': 'kafka_acknowledged', 'emitted': count})
         return count
     finally:
-        producer.close(timeout=30)
+        producer.flush(30)
 
 
 if __name__ == '__main__':

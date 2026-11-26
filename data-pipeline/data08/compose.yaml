@@ -1,15 +1,15 @@
 services:
   postgres:
-    image: postgres:16
+    image: ${DATA08_POSTGRES_IMAGE:-postgres:18.7}
     environment:
       POSTGRES_DB: catalog
       POSTGRES_HOST_AUTH_METHOD: trust
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d catalog"]
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-d", "catalog"]
       interval: 2s
       timeout: 5s
       retries: 20
     volumes:
-      - catalog:/var/lib/postgresql/data
+      - catalog18:/var/lib/postgresql
 volumes:
-  catalog:
+  catalog18:

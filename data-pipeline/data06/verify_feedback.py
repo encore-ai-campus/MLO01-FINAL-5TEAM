@@ -10,7 +10,7 @@ from pathlib import Path
 from kafka import KafkaConsumer, KafkaProducer, TopicPartition
 from kafka.admin import KafkaAdminClient, NewTopic
 
-from benchmark_refined import BOOTSTRAP, COMPOSE, ENVIRONMENT, ROOT
+from benchmark_refined import BOOTSTRAP, COMPOSE, ENVIRONMENT, ROOT, event_topic_configs
 
 
 def feedback_fixture():
@@ -61,7 +61,7 @@ def verify(out):
 
     run('00-services', ['up', '-d', '--wait', 'kafka'])
     with closing(KafkaAdminClient(bootstrap_servers=BOOTSTRAP)) as admin:
-        admin.create_topics([NewTopic(run_id, 2, 1)])
+        admin.create_topics([NewTopic(run_id, 2, 1, topic_configs=event_topic_configs(1))])
     expected = feedback_fixture()
     (artifacts / 'fixture.json').write_text(json.dumps(expected, indent=2) + '\n', encoding='utf-8')
     first = [row for row in expected if row['log_type'] == 'click']
