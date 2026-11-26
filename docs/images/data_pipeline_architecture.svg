@@ -1,0 +1,144 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1140" width="1200" height="1140" font-family="'Malgun Gothic','Apple SD Gothic Neo','Noto Sans KR',sans-serif" font-size="12" fill="#1F2937">
+  <defs>
+    <marker id="ahG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#6B7280"/></marker>
+    <marker id="ahB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2563EB"/></marker>
+    <marker id="ahO" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#C2410C"/></marker>
+    <marker id="ahP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7C3AED"/></marker>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="1140" fill="#FFFFFF"/>
+  <text x="30" y="28" font-size="15" font-weight="700">데이터 파이프라인 구조</text>
+
+  <!-- 1행: 데이터 준비 -->
+  <rect fill="#EEEEF2" stroke="#6B7280" stroke-width="1.5" x="40" y="50" width="180" height="50" rx="8"/>
+  <text x="130" y="80" text-anchor="middle" font-weight="700" font-size="13.5">원본 CSV</text>
+  <path fill="none" stroke="#6B7280" stroke-width="1.5" marker-end="url(#ahG)" d="M220,75 H385"/>
+  <text x="302" y="67" text-anchor="middle" font-size="11.5" fill="#374151">변환(이벤트 ID 부여)</text>
+  <rect fill="#EEEEF2" stroke="#6B7280" stroke-width="1.5" x="390" y="45" width="240" height="60" rx="8"/>
+  <text x="510" y="70" text-anchor="middle" font-weight="700" font-size="13.5">Parquet</text>
+  <text x="510" y="90" text-anchor="middle" font-size="11.5" fill="#374151">로컬 샘플 / S3 전체</text>
+  <path fill="none" stroke="#6B7280" stroke-width="1.5" marker-end="url(#ahG)" d="M510,105 V140"/>
+
+  <!-- 2행: 재생기, 서빙 -->
+  <rect fill="#E3F0FF" stroke="#3B7DD8" stroke-width="1.5" x="390" y="140" width="240" height="56" rx="8"/>
+  <text x="510" y="174" text-anchor="middle" font-weight="700" font-size="13.5">로그 재생기</text>
+  <path fill="none" stroke="#6B7280" stroke-width="1.2" d="M390,168 H360"/>
+  <text x="352" y="163" text-anchor="end" font-size="11.5" fill="#374151">재생 시계 발행</text>
+  <text x="352" y="181" text-anchor="end" font-size="11.5" fill="#374151">(재생 실행 ID, 현재 재생 시각)</text>
+
+  <rect fill="#F1EAFE" stroke="#7C3AED" stroke-width="1.5" x="880" y="140" width="240" height="56" rx="8"/>
+  <text x="1000" y="174" text-anchor="middle" font-weight="700" font-size="13.5">서빙</text>
+
+  <!-- 3행: Kafka -->
+  <rect fill="#F7F7FA" stroke="#6B7280" stroke-width="1.2" x="370" y="232" width="790" height="98" rx="10"/>
+  <text x="384" y="251" font-weight="700" font-size="13">Kafka</text>
+  <path fill="none" stroke="#2563EB" stroke-width="1.8" marker-end="url(#ahB)" d="M510,196 V258"/>
+  <text x="518" y="226" font-size="11.5" fill="#1D4ED8">행동 이벤트</text>
+  <rect fill="#E3F0FF" stroke="#3B7DD8" stroke-width="1.5" x="390" y="260" width="240" height="56" rx="8"/>
+  <text x="510" y="293" text-anchor="middle" font-weight="700" font-size="13.5">행동 이벤트 토픽</text>
+  <path fill="none" stroke="#7C3AED" stroke-width="1.8" marker-end="url(#ahP)" d="M1000,196 V258"/>
+  <rect fill="#F1EAFE" stroke="#7C3AED" stroke-width="1.5" x="860" y="260" width="280" height="56" rx="8"/>
+  <text x="1000" y="283" text-anchor="middle" font-weight="700" font-size="13.5">피드백 토픽 3개</text>
+  <text x="1000" y="303" text-anchor="middle" font-size="11.5" fill="#374151">노출 / 클릭 / 구매 전환 예측</text>
+
+  <!-- 4행: Spark 판정 작업, 피드백 -->
+  <path fill="none" stroke="#2563EB" stroke-width="1.8" marker-end="url(#ahB)" d="M510,316 V368"/>
+  <rect fill="#E3F0FF" stroke="#3B7DD8" stroke-width="1.5" x="360" y="370" width="300" height="64" rx="8"/>
+  <text x="510" y="396" text-anchor="middle" font-weight="700" font-size="13.5">Spark 판정 작업</text>
+  <text x="510" y="418" text-anchor="middle" font-size="11.5" fill="#374151">스키마 검사 → 중복·늦음 판정(결과를 붙여 모두 내보냄)</text>
+
+  <path fill="none" stroke="#7C3AED" stroke-width="1.8" marker-end="url(#ahP)" d="M1000,316 V368"/>
+  <rect fill="#F1EAFE" stroke="#7C3AED" stroke-width="1.5" x="840" y="370" width="320" height="64" rx="8"/>
+  <text x="1000" y="396" text-anchor="middle" font-weight="700" font-size="13.5">Spark Structured Streaming: 피드백</text>
+  <text x="1000" y="418" text-anchor="middle" font-size="11.5" fill="#374151">스키마 검사 → 중복 제거 → 적재</text>
+
+  <!-- 4.5행: 정제 토픽 -->
+  <path fill="none" stroke="#2563EB" stroke-width="1.8" marker-end="url(#ahB)" d="M510,434 V468"/>
+  <rect fill="#F7F7FA" stroke="#6B7280" stroke-width="1.5" x="390" y="470" width="240" height="56" rx="8"/>
+  <text x="510" y="494" text-anchor="middle" font-weight="700" font-size="13.5">Kafka 정제 토픽</text>
+  <text x="510" y="514" text-anchor="middle" font-size="11.5" fill="#374151">판정 결과·원본 위치 포함</text>
+
+  <!-- 행동 토픽 → Delta 적재(원본 복사) -->
+  <path fill="none" stroke="#2563EB" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#ahB)" d="M390,288 H300 V564"/>
+  <text x="292" y="420" text-anchor="end" font-size="11.5" fill="#1D4ED8">원본 복사</text>
+
+  <!-- 5행: 두 소비 작업 -->
+  <path fill="none" stroke="#2563EB" stroke-width="1.8" marker-end="url(#ahB)" d="M450,526 V546 H380 V564"/>
+  <path fill="none" stroke="#2563EB" stroke-width="1.8" marker-end="url(#ahB)" d="M570,526 V546 H690 V564"/>
+  <rect fill="#E3F0FF" stroke="#3B7DD8" stroke-width="1.5" x="120" y="566" width="360" height="64" rx="8"/>
+  <text x="300" y="592" text-anchor="middle" font-weight="700" font-size="13.5">Spark Delta 적재 작업</text>
+  <text x="300" y="614" text-anchor="middle" font-size="11.5" fill="#374151">30~60초마다 모아 쓰기(멱등 쓰기)</text>
+  <rect fill="#E3F0FF" stroke="#3B7DD8" stroke-width="1.5" x="570" y="566" width="240" height="64" rx="8"/>
+  <text x="690" y="592" text-anchor="middle" font-weight="700" font-size="13.5">Spark Redis 반영 작업</text>
+  <text x="690" y="614" text-anchor="middle" font-size="11.5" fill="#374151">짧은 간격, 수 초 목표</text>
+
+  <!-- 6행: 저장소 -->
+  <path fill="none" stroke="#2563EB" stroke-width="1.8" marker-end="url(#ahB)" d="M300,630 V694"/>
+  <path fill="none" stroke="#2563EB" stroke-width="1.8" marker-end="url(#ahB)" d="M690,630 V694"/>
+  <text x="700" y="668" font-size="11.5" fill="#1D4ED8">세션 피처·구매 이력</text>
+
+  <rect fill="#E4F5E5" stroke="#3E9B4F" stroke-width="1.5" x="120" y="696" width="360" height="104" rx="8"/>
+  <text x="300" y="720" text-anchor="middle" font-weight="700" font-size="13.5">Delta Lake</text>
+  <text x="136" y="743" font-size="11.5" fill="#374151">원본(bronze): 모든 이벤트 그대로</text>
+  <text x="136" y="764" font-size="11.5" fill="#374151">정제(silver): 판정 결과 포함</text>
+  <text x="136" y="785" font-size="11.5" fill="#374151">피처(gold): 피처 이력(시점 조회용)</text>
+
+  <rect fill="#E4F5E5" stroke="#3E9B4F" stroke-width="1.5" x="580" y="696" width="220" height="104" rx="8"/>
+  <text x="690" y="720" text-anchor="middle" font-weight="700" font-size="13.5">Redis</text>
+  <text x="690" y="746" text-anchor="middle" font-size="11.5" fill="#374151">온라인 피처 스토어</text>
+  <text x="690" y="767" text-anchor="middle" font-size="11.5" fill="#374151">세션 피처·구매 이력(실시간)</text>
+  <text x="690" y="788" text-anchor="middle" font-size="11.5" fill="#374151">사용자·상품 피처(배치)</text>
+
+  <path fill="none" stroke="#7C3AED" stroke-width="1.8" marker-end="url(#ahP)" d="M1000,434 V498"/>
+  <rect fill="#E4F5E5" stroke="#3E9B4F" stroke-width="1.5" x="860" y="500" width="280" height="64" rx="8"/>
+  <text x="1000" y="526" text-anchor="middle" font-weight="700" font-size="13.5">Delta Lake</text>
+  <text x="1000" y="548" text-anchor="middle" font-size="11.5" fill="#374151">피드백 테이블</text>
+
+  <!-- 7행: 배치 -->
+  <path fill="none" stroke="#C2410C" stroke-width="1.8" marker-end="url(#ahO)" d="M240,800 V864"/>
+  <text x="232" y="836" text-anchor="end" font-size="11.5" fill="#9A3412">정제 읽기</text>
+  <path fill="none" stroke="#C2410C" stroke-width="1.8" marker-end="url(#ahO)" d="M360,864 V802"/>
+  <text x="368" y="836" font-size="11.5" fill="#9A3412">피처 이력 쓰기</text>
+
+  <rect fill="#FFEFD9" stroke="#D98A1F" stroke-width="1.5" x="120" y="866" width="360" height="84" rx="8"/>
+  <text x="300" y="891" text-anchor="middle" font-weight="700" font-size="13.5">Airflow 배치 작업(Spark 배치)</text>
+  <text x="300" y="913" text-anchor="middle" font-size="11.5" fill="#374151">일 단위 집계 피처, 시점별 카탈로그, 품질 검증,</text>
+  <text x="300" y="933" text-anchor="middle" font-size="11.5" fill="#374151">드리프트, 추천 성능 지표 집계</text>
+
+  <path fill="none" stroke="#C2410C" stroke-width="1.8" marker-end="url(#ahO)" d="M480,908 H690 V802"/>
+  <text x="500" y="898" font-size="11.5" fill="#9A3412">사용자·상품 피처</text>
+  <text x="500" y="928" font-size="11.5" fill="#9A3412">재생 시계가 하루를 넘으면 실행</text>
+
+  <!-- 카탈로그 사본(제안) -->
+  <path fill="none" stroke="#C2410C" stroke-width="1.8" stroke-dasharray="6 4" marker-end="url(#ahO)" d="M440,950 V972 H630 V986"/>
+  <text x="540" y="965" text-anchor="middle" font-size="11.5" fill="#9A3412">시점별 카탈로그 사본</text>
+  <rect fill="#FFFFFF" stroke="#6B7280" stroke-width="1.5" stroke-dasharray="6 4" x="510" y="988" width="240" height="80" rx="8"/>
+  <text x="630" y="1011" text-anchor="middle" font-weight="700" font-size="13.5">PostgreSQL(운영: 인프라)</text>
+  <text x="630" y="1032" text-anchor="middle" font-size="11.5" fill="#374151">카탈로그 적재: 데이터 담당</text>
+  <text x="630" y="1052" text-anchor="middle" font-size="11.5" fill="#374151">열 구성: 서빙과 합의(제안)</text>
+
+  <!-- 8행: 모니터링 -->
+  <path fill="none" stroke="#6B7280" stroke-width="1.5" marker-end="url(#ahG)" d="M300,950 V994"/>
+  <rect fill="#EEEEF2" stroke="#6B7280" stroke-width="1.5" x="120" y="996" width="360" height="56" rx="8"/>
+  <text x="300" y="1029" text-anchor="middle" font-weight="700" font-size="13.5">Prometheus 지표 → Grafana 대시보드·알림</text>
+
+  <!-- 범례 -->
+  <rect fill="#FFFFFF" stroke="#D1D5DB" stroke-width="1" x="780" y="896" width="380" height="182" rx="8"/>
+  <text x="796" y="918" font-weight="700" font-size="12.5">범례</text>
+  <path fill="none" stroke="#2563EB" stroke-width="1.8" marker-end="url(#ahB)" d="M796,942 H846"/>
+  <text x="858" y="946" font-size="11.5">실시간 경로(판정 → 정제 토픽 → 두 작업)</text>
+  <path fill="none" stroke="#C2410C" stroke-width="1.8" marker-end="url(#ahO)" d="M796,968 H846"/>
+  <text x="858" y="972" font-size="11.5">배치 경로(하루 단위)</text>
+  <path fill="none" stroke="#7C3AED" stroke-width="1.8" marker-end="url(#ahP)" d="M796,994 H846"/>
+  <text x="858" y="998" font-size="11.5">피드백 경로(서빙 → 적재)</text>
+  <path fill="none" stroke="#6B7280" stroke-width="1.5" marker-end="url(#ahG)" d="M796,1020 H846"/>
+  <text x="858" y="1024" font-size="11.5">데이터 준비·모니터링</text>
+  <path fill="none" stroke="#6B7280" stroke-width="1.8" stroke-dasharray="6 4" d="M796,1046 H846"/>
+  <text x="858" y="1050" font-size="11.5">점선 = 합의 전(제안)</text>
+  <rect fill="#E4F5E5" stroke="#3E9B4F" stroke-width="1.2" x="796" y="1060" width="14" height="10" rx="2"/>
+  <text x="818" y="1069" font-size="11">초록 상자: 저장소</text>
+
+  <!-- 노드 배치 주석 -->
+  <text x="40" y="1102" font-size="11.5" fill="#374151">노드 배치 원칙(확정): 저장소(Kafka, Redis, PostgreSQL)는 한 PC에 모으지 않고 서로 다른 PC에 나눠 두고, 복제본은 원본과 다른 PC에 둔다.</text>
+  <text x="40" y="1121" font-size="11.5" fill="#374151">제안(인프라 담당과 합의 전): Delta Lake는 S3 개발용 버킷에 둔다. 구성 요소별 PC와 복제 구성은 아직 정하지 않았다(설계 초안 3장).</text>
+</svg>
