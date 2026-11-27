@@ -154,14 +154,19 @@ def inspect(spark, path):
     print('DATA06_DELTA ' + json.dumps(summary), flush=True)
 
 
-def spark_session(app_name):
-    spark = (SparkSession.builder.appName(app_name)
+def spark_session(app_name, *, event_log_dir=None):
+    builder = (SparkSession.builder.appName(app_name)
              .config('spark.sql.extensions', 'io.delta.sql.DeltaSparkSessionExtension')
              .config('spark.sql.catalog.spark_catalog', 'org.apache.spark.sql.delta.catalog.DeltaCatalog')
              .config('spark.databricks.delta.snapshotPartitions', '1')
              .config('spark.sql.session.timeZone', 'UTC')
              .config('spark.sql.shuffle.partitions', '2')
-             .config('spark.sql.adaptive.enabled', 'false').getOrCreate())
+             .config('spark.sql.adaptive.enabled', 'false'))
+    if event_log_dir is not None:
+        event_log_dir.mkdir(parents=True, exist_ok=True)
+        builder.config('spark.eventLog.enabled', 'true').config('spark.eventLog.compress', 'false')
+        builder.config('spark.eventLog.dir', event_log_dir.as_uri()).config('spark.eventLog.rolling.enabled', 'true')
+    spark = builder.getOrCreate()
     spark.sparkContext.setLogLevel('WARN')
     return spark
 

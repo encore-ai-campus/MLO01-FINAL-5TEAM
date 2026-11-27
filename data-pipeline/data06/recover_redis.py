@@ -11,6 +11,7 @@ from pyspark.sql import functions as F
 from bootstrap_redis import seed_users
 from redis_contract import batch_values, replace_values, user_key
 from refined import next_user_state
+from recent_actions import restore_session_lists
 from stream import spark_session
 
 
@@ -56,6 +57,8 @@ def restore(spark, args, root):
 
     # Publishers and Redis workers must be paused for this local replacement.
     with redis.Redis.from_url(args.redis_url, decode_responses=True, socket_timeout=10) as client:
+        if args.session_safety_ttl_seconds:
+            restore_session_lists(client, args.run_id, users, args.session_safety_ttl_seconds)
         replace_values(client, args.run_id, values)
 
     receipt = {'run_id': args.run_id, 'refined_topic': args.refined_topic, 'generation': uuid4().hex,
@@ -75,11 +78,14 @@ def main():
     cli.add_argument('--redis-url', required=True)
     cli.add_argument('--batch-history', type=Path)
     cli.add_argument('--replay-time')
+    cli.add_argument('--session-safety-ttl-seconds', type=int, help='Rebuild 19-2 lists when restoring Redis')
     args = cli.parse_args()
     if not re.fullmatch(r'[a-z0-9-]+', args.run_id) or args.recover_redis.exists():
         cli.error('Use a lowercase run ID and a new recovery receipt file')
     if args.batch_history and not args.replay_time:
         cli.error('Batch history requires the replay time')
+    if args.session_safety_ttl_seconds is not None and args.session_safety_ttl_seconds < 1:
+        cli.error('Session safety TTL must be positive')
     root = Path('/state') / 'split' / args.run_id
     spark = spark_session('data-redis-restore')
     try:

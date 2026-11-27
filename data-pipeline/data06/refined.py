@@ -19,6 +19,7 @@ from pyspark.sql.types import StringType, StructField, StructType
 
 from stream import EVENT_FIELDS, EVENT_SCHEMA, spark_session
 from redis_contract import parse_time, user_key, utc_string
+from recent_actions import ACTION_TYPES, ConversionRequests, apply_list_event, session_keys
 
 
 def now_ms():
@@ -64,6 +65,9 @@ def run_query(frame, checkpoint, callback, args):
                         'durations_ms': batch['durationMs'],
                     }
                     print('DATA07_SPLIT ' + json.dumps(version), flush=True)
+                    if getattr(args, 'profile_decision_state', False):
+                        print('DATA07_STATE ' + json.dumps({'batch': batch_id, 'operators': batch['stateOperators']}),
+                              flush=True)
                     last_batch = batch_id
             if terminated:
                 break
@@ -141,10 +145,10 @@ def decision_input(spark, args):
     return parsed.withColumn('event_ms', F.unix_millis(F.try_to_timestamp(F.col(f'event.{fields.EVENT_TIME}'))))
 
 
-def decision_message(args, batch_id, row, event, status, reason):
+def decision_message(args, batch_id, row, event, status, reason, session_id=None):
     message = {'run_id': args.run_id, 'decision_batch': batch_id, 'status': status,
                'rejection_reason': reason, 'origin_partition': row.partition, 'origin_offset': row.offset,
-               'origin_broker_ms': row.broker_ms, 'decision_ms': now_ms(), **event}
+               'origin_broker_ms': row.broker_ms, 'decision_ms': now_ms(), **event, 'session_id': session_id}
     key = row.key if status != INVALID else f'rejected:{row.partition}:{row.offset}'
     return key, json.dumps(message), row.partition, row.offset
 
@@ -190,7 +194,7 @@ def spark_decision_worker(spark, args, root):
     contract_file = root / 'decision-spark-contract.json'
     if (root / 'decision.sqlite').exists() or (root / 'decision-checkpoint').exists():
         raise ValueError('Switching decision backends requires a new run ID and fresh topics/checkpoints')
-    contract = [args.topic, args.refined_topic, args.allowed_lateness_seconds, DECISION_POLICY]
+    contract = [args.topic, args.refined_topic, args.allowed_lateness_seconds, 'keyed-prior-batch-clock-v3-session']
     try:
         with contract_file.open('x', encoding='utf-8') as stream:
             json.dump(contract, stream)
@@ -200,16 +204,32 @@ def spark_decision_worker(spark, args, root):
 
     spark.conf.set('spark.sql.streaming.stateStore.providerClass',
                    'org.apache.spark.sql.execution.streaming.state.RocksDBStateStoreProvider')
-    classified = decisions(decision_input(spark, args), args.run_id, args.allowed_lateness_seconds * 1000)
+    if args.decision_state_partitions is not None:
+        spark.conf.set('spark.sql.shuffle.partitions', str(args.decision_state_partitions))
+    if args.decision_changelog:
+        spark.conf.set('spark.sql.streaming.stateStore.rocksdb.changelogCheckpointing.enabled', 'true')
+    # This query reads the watermark as a clock and does not register Spark timers.
+    spark.conf.set('spark.sql.streaming.noDataMicroBatches.enabled', 'false')
+    classified = decisions(decision_input(spark, args), args.allowed_lateness_seconds * 1000)
     producer = decision_producer(args)
 
     def process(batch, batch_id):
+        collect_started = now_ms()
         rows = sorted(batch.collect(), key=lambda row: (row.partition, row.offset))
+        collected = now_ms()
         if not rows:
             return
-        outgoing = [decision_message(args, batch_id, row, json.loads(row.event_json), row.status, row.rejection_reason)
+        outgoing = [decision_message(args, batch_id, row, json.loads(row.event_json), row.status, row.rejection_reason,
+                                     row.session_id)
                     for row in rows]
+        publish_started = now_ms()
         publish_decisions(spark, args, producer, outgoing)
+        if args.benchmark_progress:
+            print('DATA06_KEYED_TIMING ' + json.dumps({
+                'batch': batch_id, 'collect_started_ms': collect_started, 'collected_ms': collected,
+                'publish_started_ms': publish_started, 'acked_ms': now_ms(),
+                'rows': [[row.broker_ms, row.classified_ms, row.classify_us] for row in rows],
+            }), flush=True)
         if args.fail == 'decision-after-publish' and batch_id >= args.fail_decision_after_batch:
             raise RuntimeError('INJECTED_DECISION_AFTER_PUBLISH')
 
@@ -288,7 +308,7 @@ def decision_worker(spark, args, root):
 
 def refined_rows(frame):
     schema = (', '.join(f'{name} {kind.simpleString()}' for name, kind in EVENT_FIELDS.items())
-              + ', run_id string, decision_batch long, status string, rejection_reason string'
+              + ', run_id string, decision_batch long, status string, rejection_reason string, session_id string'
               + ', origin_partition int, origin_offset long'
               + ', origin_broker_ms long, decision_ms long')
     return (frame.select(F.col('partition').alias('refined_partition'), F.col('offset').alias('refined_offset'),
@@ -312,6 +332,32 @@ end
 if (current or '') ~= ARGV[3] then
     return redis.error_reply('Concurrent writer for this user')
 end
+if #KEYS > 1 then
+    local kind = redis.call('TYPE', KEYS[2]).ok
+    local list_kind = redis.call('TYPE', KEYS[3]).ok
+    if (kind ~= 'none' and kind ~= 'hash') or (list_kind ~= 'none' and list_kind ~= 'list') then
+        return redis.error_reply('Session key has the wrong type')
+    end
+    local owner = redis.call('HGET', KEYS[2], 'run_id')
+    if owner and owner ~= ARGV[5] then
+        return redis.error_reply('Use a separate Redis database for each replay')
+    end
+    local ttl = tonumber(ARGV[6])
+    local actions = cjson.decode(ARGV[7])
+    local previous_owner = #KEYS > 3 and redis.call('HGET', KEYS[4], 'run_id') or false
+    if not ttl or ttl < 1 or #actions > 5 or (previous_owner and previous_owner ~= ARGV[5]) then
+        return redis.error_reply('Invalid session write')
+    end
+    local clock = redis.call('TIME')
+    local expires = tonumber(clock[1]) * 1000 + math.floor(tonumber(clock[2]) / 1000) + ttl * 1000
+    redis.call('HSET', KEYS[2], 'run_id', ARGV[5], 'features', ARGV[8], 'feature_revision', ARGV[9],
+               'origin_partition', ARGV[1], 'origin_offset', ARGV[2], 'purchased', ARGV[10])
+    redis.call('DEL', KEYS[3])
+    for _, action in ipairs(actions) do redis.call('RPUSH', KEYS[3], action) end
+    redis.call('PEXPIREAT', KEYS[2], expires)
+    if #actions > 0 then redis.call('PEXPIREAT', KEYS[3], expires) end
+    if #KEYS > 3 and previous_owner then redis.call('DEL', KEYS[4], KEYS[5]) end
+end
 redis.call('SET', KEYS[1], ARGV[4])
 return 1
 """
@@ -330,6 +376,10 @@ def next_user_state(previous, event):
         raise ValueError('Accepted events must be in time order for this feature calculation')
     new_session = last is None or now - last > timedelta(minutes=30)
     session_start = event_id if new_session else features['session_start_event_id']
+    decided_session = getattr(event, 'session_id', None)
+    if decided_session is not None:
+        session_start = decided_session
+        new_session = session_start != features.get('session_start_event_id')
     if previous and 'history' not in previous:
         raise ValueError('Redis state uses the old schema; rebuild from Delta before resuming')
     history = previous.get('history', [])
@@ -373,7 +423,53 @@ def redis_input_state(raw, event):
     return previous
 
 
-def apply_redis_pipeline(client, apply, run_id, events, publish_latency):
+def apply_recent_actions(client, apply, run_id, events, publish_latency, requests):
+    applied = skipped = 0
+    for event in events:
+        key = user_key(run_id, getattr(event, fields.USER_ID))
+        raw = client.get(key)
+        previous = redis_input_state(raw, event)
+        if previous is None:
+            skipped += 1
+            continue
+        session_id = getattr(event, 'session_id', None)
+        if not session_id:
+            raise ValueError('Recent actions require Spark-assigned session IDs')
+        old_session = previous.get('features', {}).get('session_start_event_id')
+        current_session = old_session == session_id
+        session_key, list_key = session_keys(session_id)
+        if client.hget(session_key, 'run_id') not in (None, run_id):
+            raise ValueError('Use a separate Redis database for each replay')
+        actions = [json.loads(item) for item in client.lrange(list_key, 0, -1)] if current_session else []
+        if current_session and (actions[-1]['seq'] if actions else 0) != previous.get('recent_action_seq'):
+            raise ValueError('Recent actions need to be restored before resuming this session')
+        lookup = now_ms()
+        state = next_user_state(previous, event)
+        actions = apply_list_event(actions, event)
+        event_type = getattr(event, fields.EVENT_TYPE)
+        purchased = current_session and previous.get('session_purchased', False)
+        state['session_purchased'] = purchased or event_type == 'purchase'
+        state['recent_action_seq'] = actions[-1]['seq'] if actions else 0
+        revision = f'{run_id}:{event.origin_partition}:{event.origin_offset}'
+        keys = [key, session_key, list_key]
+        if old_session and not current_session:
+            keys.extend(session_keys(old_session))
+        computed = now_ms()
+        if event_type in ACTION_TYPES and not purchased:
+            requests.publish(run_id, event, session_id, actions)
+        if apply(keys=keys, args=[event.origin_partition, event.origin_offset, raw or '', json.dumps(state),
+                                 run_id, requests.ttl, json.dumps([json.dumps(item) for item in actions]),
+                                 json.dumps(state['features']), revision, int(state['session_purchased'])]):
+            applied += 1
+            publish_latency(event, lookup, computed, now_ms())
+        else:
+            skipped += 1
+    return applied, skipped
+
+
+def apply_redis_pipeline(client, apply, run_id, events, publish_latency, requests=None):
+    if requests is not None:
+        return apply_recent_actions(client, apply, run_id, events, publish_latency, requests)
     if not events:
         return 0, 0
     keys = list(dict.fromkeys(user_key(run_id, getattr(event, fields.USER_ID)) for event in events))
@@ -419,6 +515,7 @@ def redis_worker(spark, args, root):
     starting = json.dumps({args.refined_topic: recovery['restart_offsets']}) if recovery else 'earliest'
     checkpoint = root / (f"redis-recovery-{recovery['generation']}" if recovery else 'redis-checkpoint')
     frame = refined_rows(kafka_stream(spark, args, args.refined_topic, starting))
+    requests = ConversionRequests(args) if args.prediction_topic else None
     with redis.Redis.from_url(args.redis_url, decode_responses=True, socket_timeout=5) as client:
         apply = client.register_script(REDIS_APPLY)
 
@@ -444,8 +541,13 @@ def redis_worker(spark, args, root):
                 if args.benchmark_progress:
                     profile.append([event.refined_broker_ms, entered, read_ended, lookup_ended, computed, acked])
 
-            if args.redis_batch_writes and not args.fail:
-                applied, skipped = apply_redis_pipeline(client, apply, args.run_id, eligible, publish_latency)
+            if requests is not None or (args.redis_batch_writes and not args.fail):
+                if args.fail == 'redis-after-first':
+                    eligible = eligible[:1]
+                applied, skipped = apply_redis_pipeline(client, apply, args.run_id, eligible, publish_latency,
+                                                       requests=requests)
+                if args.fail == 'redis-after-first' and applied:
+                    raise RuntimeError('INJECTED_REDIS_AFTER_FIRST')
             else:
                 for event in eligible:
                     key = user_key(args.run_id, event[fields.USER_ID])
@@ -572,6 +674,11 @@ def main():
     parser.add_argument('--kafka', default='kafka:9092')
     parser.add_argument('--redis-url', default='redis://redis:6379/0')
     parser.add_argument('--redis-recovery', type=Path)
+    parser.add_argument('--prediction-topic', help='Enable the 19-2 Redis List and conversion request publishing')
+    parser.add_argument('--prediction-input-calculator', help='Shared ML function as module:function')
+    parser.add_argument('--prediction-input-version')
+    parser.add_argument('--session-safety-ttl-seconds', type=int)
+    parser.add_argument('--replay-prediction-permille', type=int, default=100)
     parser.add_argument('--allowed-lateness-seconds', type=int, default=60)
     parser.add_argument('--batch-size', type=int, default=1000)
     parser.add_argument('--decision-state-store', choices=('spark', 'sqlite'),
@@ -581,18 +688,45 @@ def main():
     parser.add_argument('--decision-publisher', choices=('spark', 'driver'), default='spark')
     parser.add_argument('--redis-batch-writes', action='store_true')
     parser.add_argument('--redis-direct', action='store_true', help='Use the local Kafka polling Redis sink')
+    parser.add_argument('--redis-direct-offsets', choices=('sqlite', 'kafka'), default='sqlite',
+                        help='Use broker-committed offsets for the direct Redis consumer')
+    parser.add_argument('--redis-session-timeout-ms', type=int, default=10000,
+                        help='Kafka group failure detection timeout for the direct Redis consumer')
+    parser.add_argument('--redis-heartbeat-interval-ms', type=int, default=2000,
+                        help='Kafka group heartbeat interval for the direct Redis consumer')
+    parser.add_argument('--decision-state-partitions', type=int,
+                        help='Set shuffle partitions for a fresh Spark decision checkpoint')
+    parser.add_argument('--profile-decision-state', action='store_true')
+    parser.add_argument('--decision-changelog', action='store_true')
     parser.add_argument('--fail-decision-after-batch', type=int, default=0)
     parser.add_argument('--benchmark-progress', action='store_true', help='Log committed Kafka positions')
     parser.add_argument('--trace-revisions', action='store_true', help='Trace test states in Redis and from Delta')
     parser.add_argument('--fail', choices=('decision-after-publish', 'redis-after-first',
                                            'delta-before-write', 'delta-after-write'))
     args = parser.parse_args()
+    if any((args.prediction_topic, args.prediction_input_calculator, args.prediction_input_version,
+            args.session_safety_ttl_seconds is not None)) and (
+            not all((args.prediction_topic, args.prediction_input_calculator, args.prediction_input_version,
+                     args.session_safety_ttl_seconds)) or args.session_safety_ttl_seconds < 1
+            or args.stage not in ('redis', 'bundled') or args.prediction_topic in (args.topic, args.refined_topic)
+            or args.trace_revisions):
+        parser.error('19-2 requires a separate prediction topic, calculator, version and positive safety TTL on Redis')
+    if not 0 <= args.replay_prediction_permille <= 1000:
+        parser.error('Replay prediction sampling must be between 0 and 1000 permille')
     if args.decision_state_store not in ('spark', 'sqlite'):
         parser.error('DATA06_DECISION_STATE_STORE must be spark or sqlite')
     if not re.fullmatch(r'[a-z0-9-]+', args.run_id) or args.topic == args.refined_topic:
         parser.error('Use a lowercase run ID and distinct action and refined topics')
     if args.batch_size < 1 or args.allowed_lateness_seconds < 0:
         parser.error('Batch size must be positive and lateness cannot be negative')
+    if args.decision_state_partitions is not None and (
+            args.decision_state_partitions < 1 or args.stage != 'decision' or args.decision_state_store != 'spark'):
+        parser.error('Decision state partitions require the Spark decision stage and a positive count')
+    if (args.profile_decision_state or args.decision_changelog) and (
+            args.stage != 'decision' or args.decision_state_store != 'spark'):
+        parser.error('Decision profiling and changelog require the Spark decision stage')
+    if args.profile_decision_state and not args.benchmark_progress:
+        parser.error('Decision profiling requires benchmark progress')
     failure_stages = {'decision-after-publish': 'decision', 'redis-after-first': 'redis',
                       'delta-before-write': 'delta', 'delta-after-write': 'delta'}
     if args.fail and failure_stages[args.fail] != args.stage:
@@ -601,8 +735,11 @@ def main():
         parser.error('Bundled workers require --continuous')
     if args.redis_recovery and args.stage != 'redis':
         parser.error('Redis recovery offsets apply only to the Redis worker')
-    if args.redis_direct and (args.stage != 'redis' or not args.continuous or args.fail):
+    if args.redis_direct and (args.stage != 'redis' or not args.continuous):
         parser.error('Direct Redis mode requires the continuous Redis worker')
+    if args.redis_direct and args.redis_direct_offsets == 'kafka' and not (
+            0 < args.redis_heartbeat_interval_ms < args.redis_session_timeout_ms):
+        parser.error('Redis consumer heartbeat must be positive and shorter than its session timeout')
     if args.trace_revisions and (args.stage not in ('redis', 'inspect') or args.redis_direct or args.redis_batch_writes):
         parser.error('Revision tracing requires the Spark Redis worker or the Delta inspector')
     args.trigger = args.trigger or ('30 seconds' if args.stage in ('delta', 'bundled') else '1 second')
@@ -613,7 +750,8 @@ def main():
 
         consume(args, root, redis_recovery_plan(args))
         return
-    spark = spark_session(f'data-06-{args.stage}')
+    event_log_dir = root / 'decision-events' if args.profile_decision_state else None
+    spark = spark_session(f'data-06-{args.stage}', event_log_dir=event_log_dir)
     workers = {'decision': decision_worker, 'redis': redis_worker, 'delta': delta_worker,
                'inspect': inspect_worker, 'bundled': bundled_worker}
     try:

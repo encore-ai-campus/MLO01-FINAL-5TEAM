@@ -8,4 +8,4 @@ ENV PYTHONPATH=/opt/data06-python:/opt/data06
 RUN apt-get update && apt-get install -y --no-install-recommends procps && rm -rf /var/lib/apt/lists/*
 RUN python3 -m pip install --no-cache-dir --target /opt/data06-python redis==7.4.1 confluent-kafka==2.16.1 \
     numpy==2.2.6 pandas==2.2.3 pyarrow==26.0.1 protobuf==6.33.5
-COPY ivy.xml event_schema.py stream.py refined.py spark_decision.py feedback.py recover_redis.py bootstrap_redis.py redis_contract.py redis_kafka.py /opt/data06/
+COPY ivy.xml event_schema.py stream.py refined.py spark_decision.py feedback.py recover_redis.py bootstrap_redis.py redis_contract.py redis_kafka.py recent_actions.py tool_kafka.py /opt/data06/
