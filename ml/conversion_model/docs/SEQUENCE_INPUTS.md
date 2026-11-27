@@ -10,6 +10,12 @@
 - 팀 목록을 호출할 때 기준 행동의 `event_id`, `event_time_utc`, `sequence`를 넘긴다. 함수는 `seq`로 정렬한 뒤 마지막 행동이 세 값과 같은지 확인한다.
 - `seq`가 없는 기존 저장 목록은 UTC 시각과 원본 순번으로 처리한다. 팀 API는 예측 요청에 이미 담긴 입력 6개를 받는다.
 
+### Redis 반영 작업에서 호출
+
+팀 Redis 반영 작업의 실행 환경에서 저장소 루트의 `libs`를 import할 수 있게 하고, 예측 요청 발행 설정의 `--prediction-input-calculator`에 `libs.features.redis_purchase_inputs:calculate`를 지정한다. `--prediction-input-version`은 학습과 합의한 입력 버전을 사용한다.
+
+발행기는 `calculate(actions)`를 호출한다. 연결 함수는 전달된 목록의 마지막 행동에서 `event_time_utc`, `sequence`, `event_id`를 읽어 기존 공용 계산에 넘긴다. 목록은 `seq` 오름차순으로 연속해야 한다. 순서가 뒤집히거나 빠지면 입력 오류로 중단한다. 같은 시각·같은 원본 순번의 행동도 `seq`와 `event_id`로 구별한다.
+
 | 입력 | B 조회 → D 장바구니 |
 | --- | --- |
 | `sequence_actions` | 2 |

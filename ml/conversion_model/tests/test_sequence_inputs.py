@@ -2,6 +2,7 @@ import unittest
 from types import SimpleNamespace
 
 from libs.features.purchase_sequence import FEATURE_NAMES, sequence_inputs
+from libs.features.redis_purchase_inputs import calculate
 from ml.conversion_model.models.logistic.features import sequence_inputs as model_sequence_inputs
 from ml.conversion_model.models.logistic.features import visit_features
 
@@ -19,6 +20,27 @@ def tied_team_actions():
 
 
 class SequenceInputTests(unittest.TestCase):
+    def test_redis_call_matches_training_at_each_request(self):
+        history = []
+        for seq, (item, kind) in enumerate(
+                [('B', 'view'), ('D', 'view'), ('B', 'view'), ('B', 'view'),
+                 ('D', 'cart'), ('B', 'cart')], start=1):
+            event_id = f'E{seq}'
+            history.append({**action(item, kind, 15), 'event_id': event_id, 'seq': seq})
+            recent = history[-5:]
+            expected = model_sequence_inputs(recent, event_time=AT, sequence=15, event_id=event_id)
+            self.assertEqual(calculate(recent), expected)
+            self.assertEqual(tuple(expected), FEATURE_NAMES)
+
+    def test_redis_call_rejects_invalid_lists_without_reordering(self):
+        first, second = tied_team_actions()
+        third = {**second, 'event_id': 'E3', 'seq': 13}
+        for invalid in ([], None, [None], [action('B', 'view', 15)], [first, first],
+                        [first, third], [second, first, third], [second, first],
+                        [first, {**second, 'event_id': None}]):
+            with self.subTest(actions=invalid), self.assertRaises(ValueError):
+                calculate(invalid)
+
     def test_agreed_example_matches_training_and_api_inputs(self):
         first = action('B', 'view', 1, '2019-10-31T23:59:00Z')
         second = action('D', 'cart', 2)
