@@ -1,5 +1,7 @@
 # 개발 환경 표준화 및 설치 자동화
 
+> 초기 VM용 Bash 설치 설계 기록입니다. 아래 스크립트와 버전은 당시 계획이며, 현재 환경별 설치는 공통 Ansible 역할로 구성할 예정입니다. [현행 구성](../../../README.md) · [검증한 버전](../../support/compatibility/README.md)
+
 ## 1. 개요
 
 ### 1.1 목적
@@ -65,12 +67,12 @@ Python 애플리케이션에 필요한 패키지는 개발 팀원과 협의하�
 ```text
 infra/
 ├── docs/
-│   └── dev/
+│   └── ansible/
 │       └── environment/
 │           └── README.md
 │
 └── srcs/
-    └── dev/
+    └── ansible/
         └── environment/
             ├── install.sh
             │
@@ -118,7 +120,7 @@ infra/
 프로젝트 루트에서 다음 경로로 이동한다.
 
 ```bash
-cd infra/srcs/dev/environment
+cd infra/srcs/ansible/environment
 ```
 
 **특정 프로그램 설치**

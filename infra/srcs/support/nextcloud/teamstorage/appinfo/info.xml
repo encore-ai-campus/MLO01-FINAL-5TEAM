@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<info xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:noNamespaceSchemaLocation="https://apps.nextcloud.com/schema/apps/info.xsd">
+    <id>teamstorage</id>
+    <name>공용 SSD 용량</name>
+    <summary>파일 화면에 공용 SSD의 남은 용량을 표시합니다.</summary>
+    <description>서버가 측정한 공용 SSD의 남은 공간을 파일 탐색 메뉴에 표시합니다.</description>
+    <version>1.0.1</version>
+    <licence>agpl</licence>
+    <author>5TEAM</author>
+    <namespace>TeamStorage</namespace>
+    <category>files</category>
+    <dependencies>
+        <nextcloud min-version="34" max-version="34"/>
+    </dependencies>
+</info>

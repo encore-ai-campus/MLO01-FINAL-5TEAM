@@ -6,7 +6,7 @@
 
 팀원 간 프로젝트 참고 자료 및 테스트 파일을 공유하기 위해 Nextcloud 기반 공용 파일 저장소를 구축한다.
 
-Windows 10의 WSL2 환경에서 Docker Compose를 사용하여 Nextcloud와 MariaDB를 독립적인 컨테이너로 구성하고, Cloudflare Quick Tunnel을 통해 외부 HTTPS 접속을 제공한다.
+Windows 10의 WSL2에서 Docker Compose로 Nextcloud와 MariaDB를 실행한다. 팀원은 같은 사내망에서 브라우저로 [Nextcloud](http://192.168.0.152:8080)에 로그인하고 **파일 → share**를 연다.
 
 팀원별 계정 및 폴더 접근 권한을 적용하여 파일 공유 범위를 관리한다.
 
@@ -17,7 +17,7 @@ Windows 10의 WSL2 환경에서 Docker Compose를 사용하여 Nextcloud와 Mari
 - Nextcloud(Apache) 및 MariaDB 컨테이너 분리
 - Docker Named Volume을 통한 데이터 저장
 - Docker 내부 네트워크를 통한 서비스 간 통신
-- Cloudflare Quick Tunnel 외부 접속
+- 사내망 `192.168.0.0/24`에서 브라우저 접속
 - 내부 서비스 포트 `+5` 표준 적용
 - 팀원별 인증 및 폴더 접근 권한 관리
 - Docker 데몬 및 컨테이너 최소 권한 설정
@@ -34,33 +34,31 @@ Windows 10의 WSL2 환경에서 Docker Compose를 사용하여 Nextcloud와 Mari
 |---|---|
 | Host OS | Windows 10 |
 | Linux Environment | WSL2 Ubuntu |
-| Container Runtime | Docker Engine |
-| Container Management | Docker Compose |
-| Application | Nextcloud |
-| Web Server | Nextcloud 공식 Apache 이미지 |
-| Database | MariaDB |
+| Container Runtime | Docker Engine (설치 완료 전제) |
+| Container Management | Docker Compose 플러그인 (설치 완료 전제) |
+| Application | Nextcloud 34.0.6 |
+| Web Server | Nextcloud 공식 이미지 `nextcloud:34.0.6-apache` |
+| Database | MariaDB 11.8.10 LTS 공식 이미지 `mariadb:11.8.10` |
 | Storage | Docker Named Volume |
-| External Access | Cloudflare Quick Tunnel |
-| External Protocol | HTTPS |
+| 팀원 접속 범위 | 사내망 `192.168.0.0/24` |
+| 팀원 접속 주소 | `http://192.168.0.152:8080` (HTTP 평문 전송) |
 | Internal Protocol | HTTP / Docker 내부 TCP |
 | User Authentication | Nextcloud 계정 및 비밀번호 |
 | Management | 인프라 담당 |
 
-Nextcloud 및 MariaDB의 세부 이미지 버전은 호환성을 확인하여 확정한다.
+WSL2 Ubuntu에서 `docker compose`로 Nextcloud 웹, MariaDB, Cron을 각각의 컨테이너에서 실행한다. 웹과 Cron은 같은 Nextcloud 이미지 버전을 사용한다.
+
+MariaDB 11.8은 Nextcloud 34의 권장 데이터베이스 버전이다. 2026-11-18 로컬 서버에서는 목표 태그 `mariadb:11.8.10`을 받을 수 없어 서버의 `.env`에 `MARIADB_IMAGE=mariadb:11.8.9`를 지정했다. 이 구성으로 DB·웹·Cron을 기동했다. 외부 공개 전에는 목표 버전으로 업데이트하고 다시 검증한다.
 
 ### 2.2 전체 아키텍처
 
 ```text
                   Team Members
                        │
-                       │ HTTPS (443)
+                       │ 사내망 HTTP
                        ▼
-              Cloudflare Quick Tunnel
-                       │
-                 Encrypted Tunnel
-                       │
-                       ▼
-               cloudflared (WSL2)
+              192.168.0.152:8080
+                Windows portproxy
                        │
                        │ HTTP
                        ▼
@@ -94,7 +92,7 @@ Nextcloud 및 MariaDB의 세부 이미지 버전은 호환성을 확인하여 �
 └────────────────────────────────────────┘
 ```
 
-외부 HTTPS는 Cloudflare가 처리하며, WSL2의 `cloudflared`에서 Docker 로컬 포트로 요청을 전달한다.
+Windows 방화벽은 서버 Wi-Fi에서 `192.168.0.0/24`의 TCP 8080 접속을 허용하고 다른 IPv4 대역을 차단한다. Windows `portproxy`는 `192.168.0.152:8080` 요청을 `127.0.0.1:8080`으로 전달한다.
 
 Nextcloud는 공식 Apache 이미지를 사용하므로 Caddy와 별도 Nginx 컨테이너는 구성하지 않는다.
 
@@ -105,13 +103,14 @@ Nextcloud는 공식 Apache 이미지를 사용하므로 Caddy와 별도 Nginx �
 ```text
 infra/
 ├── docs/
-│   └── dev/
+│   └── support/
 │       └── nextcloud/
 │           └── README.md
 │
 └── srcs/
-    └── dev/
+    └── support/
         └── nextcloud/
+            ├── .env.example
             ├── compose.yaml
             │
             ├── configs/
@@ -124,18 +123,14 @@ infra/
 | 구성 요소 | 역할 |
 |---|---|
 | `README.md` | 서버 아키텍처 및 관리 방법 |
+| [`.env.example`](../../../srcs/support/nextcloud/.env.example) | 이미지 태그와 초기 관리자 계정명 예제 |
 | `compose.yaml` | 컨테이너·볼륨·네트워크 설정 |
 | `configs/` | 서비스 관련 설정 |
 | `scripts/` | 실행 및 운영 자동화 |
 | `secrets/` | 인증 정보 관리 (Git 제외) |
 
-실제 인증 정보 파일은 서버 로컬에서 관리한다.
-
-루트 `.gitignore`에 다음 항목을 추가한다.
-
-```gitignore
-infra/srcs/dev/nextcloud/secrets/
-```
+서버 초기 설정 시 `.env.example`을 같은 디렉터리의 `.env`로 복사하고 이미지 태그와 초기 관리자 계정명을 지정한다.
+비밀번호는 `secrets/` 아래의 별도 파일에 저장한다. `.env`와 `secrets/`는 [저장소의 `.gitignore`](../../../../.gitignore)로 Git 추적에서 제외한다.
 
 ---
 
@@ -143,11 +138,11 @@ infra/srcs/dev/nextcloud/secrets/
 
 ### 4.1 포트 설정 기준
 
-외부 접속과 관련된 기존 포트는 유지하고, 내부 서비스 포트에 `+5` 규칙을 적용한다.
+사내망 접속과 WSL 로컬 웹 접속은 8080을 사용하고, 내부 서비스 포트에는 `+5` 규칙을 적용한다.
 
 | 서비스 | 기본 포트 | 적용 포트 | 접근 범위 |
 |---|---:|---:|---|
-| Cloudflare HTTPS | 443 | 443 | 외부 HTTPS |
+| 사내망 웹 | 8080 | 8080 | 서버 Wi-Fi |
 | Nextcloud Host | 8080 | 8080 | WSL 로컬 |
 | Nextcloud Apache | 80 | 80 | 컨테이너 내부 |
 | MariaDB | 3306 | **3311** | Docker 내부 |
@@ -155,7 +150,7 @@ infra/srcs/dev/nextcloud/secrets/
 
 ### 4.2 포트 관리 원칙
 
-- 외부 HTTPS 및 Nextcloud 로컬 접속 포트는 변경하지 않는다.
+- 서버 IP와 로컬 웹 포트를 변경할 때 Windows 포트 전달, 방화벽 범위, Nextcloud 신뢰 도메인을 함께 확인한다.
 - DB와 같은 내부 서비스의 기본 포트는 `+5` 규칙을 적용한다.
 - 내부 서비스 포트 변경 시 서버 수신 포트와 클라이언트 연결 포트를 동일하게 설정한다.
 - Docker 내부 통신에는 고정 IP 대신 Compose 서비스 이름을 사용한다.
@@ -174,113 +169,13 @@ infra/srcs/dev/nextcloud/secrets/
 | `db` | MariaDB 데이터베이스 | `db_data` |
 | `cron` | Nextcloud 백그라운드 작업 | Nextcloud Volume 공유 |
 
-### 5.2 Compose 구성 예시
+### 5.2 Compose 구성
 
-`infra/srcs/dev/nextcloud/compose.yaml`
+배포용 `compose.yaml`(현재 작업 트리에서 삭제됨)은 `.env`에서 이미지 태그와 초기 관리자 계정명을 읽고, `secrets/`의 파일을 컨테이너에 전달한다.
 
-다음은 주요 구성 방식을 나타내는 예시다. 실제 적용 전 이미지 버전, 인증 정보 파일 및 컨테이너 권한을 검증한다.
+MariaDB가 연결을 받을 수 있고 InnoDB 초기화가 끝나면 Nextcloud 웹을 시작한다. 웹의 `/status.php`에서 설치 완료와 정상 상태가 확인되면 Cron을 시작한다.
 
-```yaml
-services:
-  db:
-    image: mariadb:lts
-    restart: unless-stopped
-
-    command:
-      - "--transaction-isolation=READ-COMMITTED"
-      - "--port=3311"
-
-    environment:
-      MARIADB_DATABASE: nextcloud
-      MARIADB_USER: nextcloud
-      MARIADB_PASSWORD_FILE: /run/secrets/db_password
-      MARIADB_ROOT_PASSWORD_FILE: /run/secrets/db_root_password
-
-    secrets:
-      - db_password
-      - db_root_password
-
-    volumes:
-      - db_data:/var/lib/mysql
-
-    networks:
-      - backend
-
-    security_opt:
-      - no-new-privileges:true
-
-  nextcloud:
-    image: nextcloud:apache
-    restart: unless-stopped
-
-    ports:
-      - "127.0.0.1:8080:80"
-
-    environment:
-      MYSQL_HOST: "db:3311"
-      MYSQL_DATABASE: nextcloud
-      MYSQL_USER: nextcloud
-      MYSQL_PASSWORD_FILE: /run/secrets/db_password
-      NEXTCLOUD_ADMIN_USER: admin
-      NEXTCLOUD_ADMIN_PASSWORD_FILE: /run/secrets/admin_password
-
-    secrets:
-      - db_password
-      - admin_password
-
-    volumes:
-      - nextcloud_data:/var/www/html
-
-    networks:
-      - frontend
-      - backend
-
-    depends_on:
-      - db
-
-    security_opt:
-      - no-new-privileges:true
-
-  cron:
-    image: nextcloud:apache
-    restart: unless-stopped
-
-    entrypoint: /cron.sh
-
-    volumes:
-      - nextcloud_data:/var/www/html
-
-    networks:
-      - backend
-
-    depends_on:
-      - nextcloud
-
-    security_opt:
-      - no-new-privileges:true
-
-networks:
-  frontend:
-    driver: bridge
-
-  backend:
-    driver: bridge
-    internal: true
-
-volumes:
-  nextcloud_data:
-  db_data:
-
-secrets:
-  db_password:
-    file: ./secrets/db_password.txt
-
-  db_root_password:
-    file: ./secrets/db_root_password.txt
-
-  admin_password:
-    file: ./secrets/admin_password.txt
-```
+서버에서는 `127.0.0.1:8080`으로 접속한다. 사내망에서 사용하는 `192.168.0.152:8080`도 Nextcloud 신뢰 도메인에 등록했다.
 
 MariaDB는 `--port=3311` 옵션을 통해 실제 수신 포트를 변경한다.
 
@@ -366,7 +261,9 @@ Named Volume은 컨테이너와 독립적으로 유지되지만, 실제 데이�
 
 ---
 
-## 8. Cloudflare Quick Tunnel
+## 8. Cloudflare Quick Tunnel (외부 접속 설계 참고)
+
+현재 운영 범위는 사내망이다. 아래 절차는 향후 외부 HTTPS 배포를 검토할 때 참조한다.
 
 ### 8.1 접속 구조
 
@@ -427,34 +324,33 @@ docker compose exec -u www-data nextcloud \
 
 ### 9.1 사용자 관리
 
-팀원 4명에 대한 개별 계정을 생성한다.
-
-| 사용자 | 기본 접근 범위 |
-|---|---|
-| 관리자 | 계정·폴더·서비스 설정 |
-| 팀원 1 | 허용된 폴더 |
-| 팀원 2 | 허용된 폴더 |
-| 팀원 3 | 허용된 폴더 |
-| 팀원 4 | 허용된 폴더 |
-
-관리자 계정은 일반 사용자 계정과 분리한다.
+팀원 계정은 `ml-lee`, `web-oh`, `pipe-lee`, `ml-kim`, `infra-cho` 다섯 개다. 계정·공유 설정은 별도 관리자 계정에서 관리한다.
+팀원은 브라우저에서 로그인한 뒤 **파일 → share**에서 직접 업로드·다운로드한다. 데스크톱 자동 동기화는 설정하지 않는다.
 
 ### 9.2 폴더 접근 제어
 
 ```text
-Nextcloud
-├── Team Member 1 → 허용 폴더
-├── Team Member 2 → 허용 폴더
-├── Team Member 3 → 허용 폴더
-├── Team Member 4 → 허용 폴더
-└── Shared Folder → 공용 접근
+share/
+├── ml-lee/
+├── web-oh/
+├── pipe-lee/
+├── ml-kim/
+└── infra-cho/
 ```
 
-- 사용자별 읽기·쓰기·수정·삭제 권한 관리
-- 필요한 폴더에만 권한 부여
-- 불필요한 공개 공유 링크 제한
-- 사용자 인증은 Nextcloud에서 처리
-- 관리자 권한과 일반 사용자 권한 분리
+관리자가 공용 폴더 `share/` 자체를 다섯 계정에 각각 공유한다. 팀원 누구나 `share/` 바로 아래에 폴더를 만들 수 있고, 새 폴더는 다른 네 명에게도 같은 위치에 보인다. 팀원은 작성자와 관계없이 공용 폴더 안에서 파일을 업로드·다운로드·수정·이동·삭제할 수 있다. 팀원 권한 값은 `15`(읽기·수정·생성·삭제)이며, 공유 대상은 관리자가 지정한다.
+
+2026-11-18에 다섯 계정과 다섯 폴더의 25가지 조합에서 업로드와 수정을 검증했다. 각 파일을 다른 계정으로 다운로드해 내용 일치를 확인했다. 별도의 사내망 PC에서 서버 상태와 로그인 페이지도 확인했다.
+
+2026-11-19에 `share/` 전체를 공용으로 전환했다. 한 팀원이 바로 아래에 만든 새 폴더가 다섯 계정에 모두 보였고, 서로 올린 파일을 수정하고 기존 팀원 폴더로 옮겨 삭제하는 작업을 확인했다.
+
+### 9.3 공용 SSD 남은 용량
+
+파일 화면 왼쪽의 개인 사용량 바로 위에 **공용 SSD**가 표시된다. 막대의 채워진 부분은 SSD 전체에서 사용 중인 공간이고, 오른쪽의 **GB 남음**은 Windows `C:` 드라이브의 여유 공간이다. 여기에는 팀 파일과 함께 Windows 및 다른 프로그램의 디스크 사용량도 반영된다.
+
+WSL의 [측정 일정](../../../srcs/support/nextcloud/teamstorage.cron)이 매시 0·10·20·30·40·50분에 `/mnt/c`에서 전체·여유 바이트를 읽는다. 파일 화면도 10분마다 값을 갱신한다. 12분이 넘은 값은 다음 조회 시 **용량 확인 불가**로 표시한다.
+
+재설치 시 [표시 앱](../../../srcs/support/nextcloud/teamstorage)을 웹 컨테이너의 `/var/www/html/custom_apps/teamstorage`에 복사하고 `php occ app:enable teamstorage`를 웹 서버 사용자로 실행한다. 측정 일정 파일은 WSL의 `/etc/cron.d/nextcloud-teamstorage`에 소유자 `root:root`, 모드 `0644`로 설치한다. 데이터 저장 드라이브나 웹 컨테이너 이름이 바뀌면 측정 일정에서도 해당 값을 변경한다.
 
 ---
 
@@ -519,7 +415,7 @@ Nextcloud의 백그라운드 작업 방식을 Cron으로 설정한다.
 ### 12.1 작업 경로
 
 ```bash
-cd infra/srcs/dev/nextcloud
+cd infra/srcs/support/nextcloud
 ```
 
 ### 12.2 구성 검사
@@ -582,12 +478,12 @@ Named Volume을 유지하므로 일반 종료 시 데이터가 삭제되지 않�
 
 | 장애 상황 | 대응 |
 |---|---|
-| 외부 접속 불가 | Quick Tunnel 상태 확인 |
+| 사내망 접속 불가 | 서버 IP와 TCP 8080 리스너, Windows 포트 전달, 방화벽 규칙 `Nextcloud-Office-8080-AllowOffice` 및 `Nextcloud-Office-8080-BlockOther` 확인 |
 | 웹 서버 오류 | Nextcloud 컨테이너 상태 확인 |
 | DB 연결 오류 | MariaDB 상태 및 `3311` 포트 확인 |
 | 파일 업로드 실패 | Volume 권한 및 사용량 확인 |
-| 터널 주소 변경 | Nextcloud 도메인 설정 갱신 |
-| WSL 종료 | WSL·Docker·cloudflared 실행 상태 확인 |
+| 사내망 주소 변경 | Windows 포트 전달과 방화벽, Nextcloud 신뢰 도메인 갱신 |
+| WSL 종료 | WSL 및 Docker 서비스 실행 상태 확인 |
 | 컨테이너 재생성 | Named Volume 연결 확인 |
 
 프로젝트 원본 데이터와 중요 산출물은 GitHub 등 별도 저장소에서 관리한다.
@@ -598,11 +494,11 @@ Named Volume을 유지하므로 일반 종료 시 데이터가 삭제되지 않�
 
 ### 14.1 인프라 담당
 
-- Docker 및 Docker Compose 환경 구성
+- Docker Engine 및 Docker Compose 동작 확인
 - Nextcloud·MariaDB 컨테이너 관리
 - Docker 네트워크 및 내부 포트 관리
 - Docker Named Volume 구성
-- Cloudflare Quick Tunnel 접속 설정
+- 사내망 포트 전달·방화벽·신뢰 도메인 관리
 - 사용자 및 폴더 권한 관리
 - 컨테이너·데몬 권한 관리
 - 인증 정보 및 서버 운영 관리
@@ -621,9 +517,6 @@ Named Volume을 유지하므로 일반 종료 시 데이터가 삭제되지 않�
 
 | 항목 | 내용 |
 |---|---|
-| Nextcloud 세부 버전 | 호환성 확인 후 고정 |
-| MariaDB 세부 버전 | 호환성 확인 후 고정 |
-| 사용자별 폴더 | 팀원 요구사항에 따라 구성 |
 | 파일 업로드 제한 | 테스트 파일 크기에 따라 결정 |
 | 파일 보관 기간 | 임시 파일 정리 기준 |
 | 추가 서비스 | Redis 등 도입 여부 검토 |
@@ -636,7 +529,7 @@ Named Volume을 유지하므로 일반 종료 시 데이터가 삭제되지 않�
 - Docker Compose로 컨테이너를 관리한다.
 - Caddy는 사용하지 않는다.
 - Nextcloud 공식 Apache 이미지를 사용한다.
-- 외부 HTTPS 및 로컬 Nextcloud 포트는 기존 설정을 유지한다.
+- 사내망 브라우저 접속과 서버 로컬 Nextcloud 웹 접속은 TCP 8080을 사용한다.
 - MariaDB 내부 포트는 기본값 `3306`에서 `3311`로 변경한다.
 - Redis 도입 시 내부 포트는 `6384`를 기준으로 검토한다.
 - 컨테이너 간 통신에는 Compose 서비스 이름을 사용한다.
@@ -649,6 +542,8 @@ Named Volume을 유지하므로 일반 종료 시 데이터가 삭제되지 않�
 ## 17. 참고 문서
 
 - [Nextcloud Docker](https://github.com/nextcloud/docker)
+- [Nextcloud 34 시스템 요구사항](https://github.com/nextcloud/documentation/blob/stable34/admin_manual/installation/system_requirements.rst)
+- [MariaDB 공식 이미지 태그](https://hub.docker.com/_/mariadb/tags)
 - [Nextcloud Database Configuration](https://docs.nextcloud.com/server/stable/admin_manual/configuration_database/linux_database_configuration.html)
 - [Docker Compose Networking](https://docs.docker.com/compose/how-tos/networking/)
 - [Docker Port Publishing](https://docs.docker.com/get-started/docker-concepts/running-containers/publishing-ports/)

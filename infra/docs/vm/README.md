@@ -26,7 +26,7 @@ Windows 운영체제를 유지하면서 독립적인 Linux 개발 환경을 제�
 - 공유 폴더 자동 마운트 설정
 - 기본 환경 검증 및 VMware 스냅샷 생성
 
-> Python, Java, Kafka, Spark, PostgreSQL, Redis 등의 설치 및 버전 통일은 별도 `infra/srcs/dev/environment/`에서 관리합니다.
+> Python, Java, Kafka, Spark, PostgreSQL, Redis 등의 설치 및 버전 통일은 [설치 환경 문서](../ansible/environment/README.md)를 참고합니다.
 
 ---
 
@@ -376,7 +376,7 @@ ubuntu-24.04-base
 VMware 환경 구축에 사용하는 스크립트는 다음 디렉터리에서 관리합니다.
 
 ```text
-infra/srcs/dev/vmware/scripts/
+infra/srcs/vm/
 ```
 
 이 디렉터리에서는 VMware 가상머신 기본 설정 및 관리에 필요한 스크립트를 관리합니다.
@@ -384,7 +384,7 @@ infra/srcs/dev/vmware/scripts/
 프로그램 및 라이브러리 설치 자동화는 별도 디렉터리에서 관리합니다.
 
 ```text
-infra/srcs/dev/environment/
+infra/srcs/ansible/
 ```
 
 이를 통해 **가상머신 기본 환경 구축과 개발 프로그램 설치 자동화를 분리**합니다.
