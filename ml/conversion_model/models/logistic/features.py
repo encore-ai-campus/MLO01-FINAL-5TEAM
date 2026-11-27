@@ -21,7 +21,7 @@ CUMULATIVE_NUMERIC = NUMERIC + ('view_count', 'distinct_product_count', 'cart_co
 CUMULATIVE_COLUMNS = CUMULATIVE_NUMERIC + COLUMNS[len(NUMERIC):]
 
 
-def sequence_inputs(actions, *, event_time, sequence, legacy_ids=False):
+def sequence_inputs(actions, *, event_time, sequence, event_id=None, legacy_ids=False):
     """Adapt historical numeric product IDs to the shared input contract."""
     if legacy_ids and isinstance(actions, list):
         actions = [
@@ -29,7 +29,7 @@ def sequence_inputs(actions, *, event_time, sequence, legacy_ids=False):
             if isinstance(action, dict) and type(action.get('product_id')) is int else action
             for action in actions
         ]
-    return shared_sequence_inputs(actions, event_time=event_time, sequence=sequence)
+    return shared_sequence_inputs(actions, event_time=event_time, sequence=sequence, event_id=event_id)
 
 
 class _Action(NamedTuple):

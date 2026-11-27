@@ -44,6 +44,11 @@ def fixture(folder):
         action = {'event_time_utc': when.isoformat(), 'event_type': 'cart' if label else 'view',
                   'product_id': str(i), 'sequence': 1}
         earlier = {**action, 'event_time_utc': previous.isoformat(), 'event_type': 'view', 'sequence': 0}
+        if i == 1:
+            # Two different accepted events may tie on both time and source sequence.
+            earlier = {**earlier, 'event_time_utc': when.isoformat(), 'sequence': 1,
+                       'seq': 1, 'event_id': 'earlier-e-1'}
+            action.update(seq=2, event_id='e-1')
         fields = {'view_count': 1 + int(not label), 'cart_count': label, 'distinct_product_count': 1,
                   'visit_elapsed_seconds': 60, 'previous_event_gap_seconds': 60, 'price': price,
                   'is_cart': label, 'price_missing': 0, 'brand': 'brand', 'category_id': 'category',
@@ -107,7 +112,8 @@ class OctoberTrainingTest(unittest.TestCase):
         previous, row = (json.loads(line) for line in (self.snapshot / 'observations.jsonl')
                          .read_text(encoding='utf-8').splitlines()[:2])
         model = LogisticModel.load(output / 'logistic.json')
-        scores = [model.predict_actions(item['actions'], event_time=item['event_time_utc'], sequence=1)
+        scores = [model.predict_actions(item['actions'], event_time=item['event_time_utc'],
+                                        sequence=item['sequence'], event_id=item['event_id'])
                   ['purchase_probability'] for item in (previous, row)]
         self.assertLess(*scores)
         model = load_booster(output / 'lightgbm.txt')

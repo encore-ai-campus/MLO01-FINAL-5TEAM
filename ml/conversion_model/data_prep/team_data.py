@@ -221,7 +221,8 @@ class TeamSnapshot:
             try:
                 actions = observed['actions']
                 inputs = sequence_inputs(actions, event_time=observed['event_time_utc'],
-                                         sequence=observed['sequence'], legacy_ids='session_id' not in observed)
+                                         sequence=observed['sequence'], event_id=observed.get('event_id'),
+                                         legacy_ids='session_id' not in observed)
             except (KeyError, ValueError, TypeError, OverflowError):
                 inputs = None
                 issues['logistic:invalid_actions'] += 1

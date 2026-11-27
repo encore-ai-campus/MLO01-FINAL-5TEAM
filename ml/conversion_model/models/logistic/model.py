@@ -95,8 +95,8 @@ class LogisticModel:
             raise ValueError('The logistic model file must contain a JSON object')
         return cls(bundle, sha256(encoded).hexdigest())
 
-    def predict_actions(self, actions, *, event_time, sequence):
-        return self.predict(sequence_inputs(actions, event_time=event_time, sequence=sequence))
+    def predict_actions(self, actions, *, event_time, sequence, event_id=None):
+        return self.predict(sequence_inputs(actions, event_time=event_time, sequence=sequence, event_id=event_id))
 
     def predict(self, features):
         validate_input(features)
