@@ -10,7 +10,7 @@ from botocore.config import Config
 from botocore.exceptions import ClientError
 from urllib3.response import HTTPResponse
 
-from publish_fallback_popularity import digest, publish, read_object, verify_list
+from publish_fallback_popularity import digest, json_bytes, publish, read_object, verify_list
 
 
 def verify(s3, bucket, args):
@@ -27,6 +27,15 @@ def verify(s3, bucket, args):
 
     base, first, second, correction = map(staged, ('2019-11-01', '2019-11-02', '2019-11-03', 'revision-02'))
     old, new, corrected = map(lambda payload: verify_list(payload[0]), (first, second, correction))
+    for payload in (base, first, second):
+        assert verify_list(payload[0])['publish_request_id'] == 'daily'
+    for invalid_id in (None, '', '  ', 123):
+        try:
+            verify_list(json_bytes({**new, 'publish_request_id': invalid_id}))
+        except ValueError as err:
+            assert str(err) == 'Invalid publication request ID'
+        else:
+            raise AssertionError('Invalid publication request ID was accepted')
     assert publish(s3, bucket, *base) == 'published'
     base_manifest = json.loads(read_object(s3, bucket, 'fallback/base/manifest.json')[0])
     published_list('fallback/base', base_manifest['versions'][0], base)
@@ -66,6 +75,14 @@ def verify(s3, bucket, args):
 
     assert len(injected) == 2
     staged_objects = [read_object(s3, bucket, key) for key in (new_key, new_key + '.sha256')]
+    other_request = json_bytes({**new, 'publish_request_id': 'another-request'})
+    try:
+        publish(s3, bucket, other_request, digest(other_request).encode('ascii'))
+    except ValueError as err:
+        assert str(err) == f'Staged content differs from immutable object {new_key}'
+    else:
+        raise AssertionError('An orphan from another request was reused')
+    assert read_object(s3, bucket, manifest_key) == (previous, previous_etag)
     assert publish(s3, bucket, *second) == 'published'
     assert [read_object(s3, bucket, key) for key in (new_key, new_key + '.sha256')] == staged_objects
     current, _ = read_object(s3, bucket, manifest_key)
@@ -84,6 +101,7 @@ def verify(s3, bucket, args):
     return {'old_version': old['list_version'], 'attempted_version': new['list_version'],
             'published_version': entries[-1]['list_version'], 'old_list_preserved_on_failure': True,
             'retried_identical_bytes': True, 'same_version': True, 'idempotent_retry': True,
+            'publish_request_id': new['publish_request_id'], 'cross_request_reuse_rejected': True,
             'explicit_revision_preserves_previous': True, 'base_manifest_isolated': True,
             'injected_s3_status': 503, 'failed_steps': ['checksum', 'manifest'],
             'object_sha256': entries[-1]['sha256'], 'bucket': bucket, 'manifest_key': manifest_key}
