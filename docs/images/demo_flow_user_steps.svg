@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1230 130" width="1230" height="130" font-family="'Malgun Gothic','Apple SD Gothic Neo','Noto Sans KR',sans-serif" font-size="13.5" fill="#1F2937">
+<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#475569"/></marker></defs>
+<rect width="1230" height="130" fill="#FFFFFF"/>
+<rect x="40" y="33" width="250" height="64" rx="8" fill="#FFFFFF" stroke="#64748B" stroke-width="1.2"/>
+<text x="165" y="60" text-anchor="middle">① 홈에 들어와</text>
+<text x="165" y="80" text-anchor="middle">인기 상품 추천을 본다</text>
+<line x1="294" y1="65.0" x2="334" y2="65.0" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
+<rect x="340" y="33" width="250" height="64" rx="8" fill="#FFFFFF" stroke="#64748B" stroke-width="1.2"/>
+<text x="465" y="60" text-anchor="middle">② 스마트폰 3개를</text>
+<text x="465" y="80" text-anchor="middle">차례로 열어 본다</text>
+<line x1="594" y1="65.0" x2="634" y2="65.0" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
+<rect x="640" y="33" width="250" height="64" rx="8" fill="#FFFFFF" stroke="#64748B" stroke-width="1.2"/>
+<text x="765" y="60" text-anchor="middle">③ 홈으로 돌아가</text>
+<text x="765" y="80" text-anchor="middle">&#x27;방금 본 상품 관련&#x27; 추천을 본다</text>
+<line x1="894" y1="65.0" x2="934" y2="65.0" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
+<rect x="940" y="33" width="250" height="64" rx="8" fill="#DCFCE7" stroke="#16A34A" stroke-width="1.8"/>
+<text x="1065" y="60" text-anchor="middle" font-weight="700">④ 추천 상품을 연다</text>
+<text x="1065" y="80" text-anchor="middle" font-weight="700">시연 목표 달성</text>
+</svg>
