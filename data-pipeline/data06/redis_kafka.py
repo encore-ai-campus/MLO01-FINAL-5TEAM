@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import redis
 from confluent_kafka import Consumer, KafkaException, OFFSET_INVALID, TopicPartition
 
-from refined import INVALID, REDIS_APPLY, apply_redis_pipeline, now_ms
+from refined import INVALID, REDIS_APPLY, apply_redis_pipeline, now_ms, record_session_positions
 from recent_actions import ConversionRequests
 
 
@@ -128,6 +128,7 @@ def poll_records(args, recovery, source, client, commit, progress=None):
             continue
         received = now_ms()
         events = []
+        session_rows = []
         positions = {}
         for record in records:
             if record.error() is not None:
@@ -138,8 +139,12 @@ def poll_records(args, recovery, source, client, commit, progress=None):
                 raise ValueError('Refined record belongs to a different run or partition')
             if payload['status'] not in ('accepted', 'duplicate', 'late', INVALID):
                 raise ValueError('Invalid refined decision')
-            if payload['status'] == 'accepted' and (not recovery or offset >= recovery['boundary'][str(partition)]):
-                events.append(SimpleNamespace(**payload, refined_offset=offset, refined_broker_ms=record.timestamp()[1]))
+            if not recovery or offset >= recovery['boundary'][str(partition)]:
+                event = SimpleNamespace(**payload, refined_offset=offset, refined_broker_ms=record.timestamp()[1])
+                if event.status in ('accepted', 'late', 'duplicate'):
+                    session_rows.append(event)
+                if event.status == 'accepted':
+                    events.append(event)
             positions[str(partition)] = offset + 1
         decoded = now_ms()
         profile = []
@@ -160,6 +165,7 @@ def poll_records(args, recovery, source, client, commit, progress=None):
                 'applied': applied, 'positions': positions,
             }), flush=True)
             os._exit(91)
+        record_session_positions(client, args.run_id, session_rows, args.session_safety_ttl_seconds or 300)
         commit(positions)
         progress.update(positions)
         committed = now_ms()

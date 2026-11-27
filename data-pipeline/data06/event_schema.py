@@ -11,6 +11,8 @@ CATEGORY_CODE = 'category_code'
 BRAND = 'brand'
 PRICE = 'price'
 USER_ID = 'user_id'
+# Parquet keeps replay IDs numeric. Kafka action and refined IDs are strings.
+KAFKA_USER_ID_TYPE = 'string'
 USER_SESSION = 'user_session'
 OBSERVED_TIME = 'observed_at'
 

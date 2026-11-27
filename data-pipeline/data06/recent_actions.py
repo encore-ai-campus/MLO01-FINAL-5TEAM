@@ -109,7 +109,9 @@ class ConversionRequests:
         self.ttl = args.session_safety_ttl_seconds
 
     def publish(self, run_id, event, session_id, actions):
-        source = getattr(event, 'origin_type', None) or 'replay'
+        source = getattr(event, 'source', None)
+        if source not in ('web', 'loadtest'):
+            source = getattr(event, 'origin_type', None) or 'replay'
         if source == 'replay' and not replay_sample(session_id, self.permille):
             return
         current = actions[-1]
@@ -119,7 +121,8 @@ class ConversionRequests:
         user = getattr(event, fields.USER_ID)
         raw_session = getattr(event, 'raw_session_id', None) or getattr(event, fields.USER_SESSION, None)
         message = {
-            'schema_version': '1', 'source': source, 'replay_run_id': run_id,
+            'schema_version': '1', 'source': source,
+            'replay_run_id': getattr(event, 'replay_run_id', None) if source in ('web', 'loadtest') else run_id,
             'event_id': current['event_id'], 'event_type': current['event_type'], 'sequence': current['sequence'],
             'event_time_utc': current['event_time_utc'],
             'replay_time_utc': format_time(getattr(event, 'replay_time_utc', None) or current['event_time_utc']),
