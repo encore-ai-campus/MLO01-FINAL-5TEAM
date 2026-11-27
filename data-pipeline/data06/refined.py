@@ -15,7 +15,7 @@ from time import perf_counter, time
 import redis
 import event_schema as fields
 from pyspark.sql import Window, functions as F
-from pyspark.sql.types import StringType, StructField, StructType
+from pyspark.sql.types import LongType, StringType, StructField, StructType
 
 from stream import EVENT_FIELDS, EVENT_SCHEMA, spark_session
 from redis_contract import parse_time, user_key, utc_string
@@ -78,6 +78,36 @@ def run_query(frame, checkpoint, callback, args):
 
 DECISION_POLICY = 'partition-event-time-quarantine-v1'
 INVALID = 'invalid'
+ACTION_MESSAGE_FIELDS = {
+    'raw_session_id': StringType(), 'replay_run_id': StringType(), 'sequence': LongType(),
+    'event_time_utc': StringType(), 'replay_time_utc': StringType(),
+    'source_file': StringType(), 'source_row': LongType(),
+}
+WEB_EVENT_ID = re.compile(r'web:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}', re.IGNORECASE)
+
+
+def action_source(event):
+    return 'web' if event.get('source') == 'web' else 'replay'
+
+
+def decision_group(event, key, run_id):
+    source = action_source(event)
+    if source == 'web':
+        return source, event.get('replay_run_id'), event['raw_session_id']
+    # Replay keys use user_id. The source data's session value can be shared by users.
+    return source, event.get('replay_run_id') or run_id, key
+
+
+def replay_position(event):
+    return (event.get('source_file') or event.get(fields.SOURCE_FILE),
+            event.get('source_row') if event.get('source_row') is not None else event.get(fields.SOURCE_ROW))
+
+
+def decision_order(event, event_ms, partition, offset):
+    if action_source(event) == 'web':
+        return event_ms, '', event['sequence'], partition, offset
+    source_file, source_row = replay_position(event)
+    return event_ms, source_file, source_row, partition, offset
 
 
 def decision_state(path, contract):
@@ -119,12 +149,32 @@ def classify(db, event, event_ms, prior_max, allowed_lateness_ms):
     return 'accepted'
 
 
-def rejection_reason(event, event_ms, key):
-    if not event or event.pop('_corrupt_record', None) is not None:
+def rejection_reason(event, event_ms, key, run_id=None):
+    if not event or event.get('_corrupt_record') is not None:
         return 'malformed_payload'
-    if not event[fields.SOURCE_FILE] or event[fields.SOURCE_ROW] is None or event[fields.SOURCE_ROW] < 0:
+    if action_source(event) == 'web':
+        if run_id is None or event.get('replay_run_id') not in (None, run_id):
+            return 'invalid_replay_run'
+        raw_session = event.get('raw_session_id')
+        if not raw_session or not raw_session.startswith('web-') or len(raw_session) == 4 or key != raw_session:
+            return 'invalid_kafka_key'
+        if not WEB_EVENT_ID.fullmatch(event.get(fields.EVENT_ID) or ''):
+            return 'invalid_event_id'
+        if event.get('sequence') is None or event['sequence'] < 1:
+            return 'invalid_source_or_sequence'
+        if event_ms is None:
+            return 'invalid_event_time'
+        if event.get(fields.PRODUCT_ID) is None:
+            return 'missing_product_id'
+        if event.get(fields.EVENT_TYPE) not in ('view', 'cart', 'purchase'):
+            return 'invalid_event_type'
+        return None
+    if run_id is not None and event.get('replay_run_id') not in (None, run_id):
+        return 'invalid_replay_run'
+    source_file, source_row = replay_position(event)
+    if not source_file or source_row is None or source_row < 0:
         return 'invalid_source_or_sequence'
-    if event[fields.EVENT_ID] != f"{event[fields.SOURCE_FILE]}:{event[fields.SOURCE_ROW]}":
+    if event[fields.EVENT_ID] != f'{source_file}:{source_row}':
         return 'invalid_event_id'
     if event_ms is None:
         return 'invalid_event_time'
@@ -137,12 +187,32 @@ def rejection_reason(event, event_ms, key):
     return None
 
 
-def decision_input(spark, args):
+def decision_input(spark, args, include_web=False):
     raw = kafka_stream(spark, args, args.topic)
-    schema = StructType([*EVENT_SCHEMA.fields, StructField('_corrupt_record', StringType())])
+    schema = EVENT_SCHEMA
+    if include_web:
+        # The team wire format sends IDs as decimal strings. Parse both the old numeric
+        # replay format and the new string format without losing bigint precision.
+        message_fields = {**EVENT_FIELDS, **ACTION_MESSAGE_FIELDS}
+        for name in (fields.USER_ID, fields.PRODUCT_ID, fields.CATEGORY_ID):
+            message_fields[name] = StringType()
+        schema = StructType([StructField(name, kind) for name, kind in message_fields.items()])
+    schema = StructType([*schema.fields, StructField('_corrupt_record', StringType())])
     parsed = raw.withColumn('event', F.from_json('value', schema, {
         'mode': 'PERMISSIVE', 'columnNameOfCorruptRecord': '_corrupt_record'}))
-    return parsed.withColumn('event_ms', F.unix_millis(F.try_to_timestamp(F.col(f'event.{fields.EVENT_TIME}'))))
+    event_time = F.col(f'event.{fields.EVENT_TIME}')
+    if include_web:
+        event_time = F.coalesce(F.col('event.event_time_utc'), event_time)
+        user_id = F.col(f'event.{fields.USER_ID}')
+        event = F.col('event').withField(
+            '_corrupt_record',
+            F.when(user_id.isNotNull() & user_id.try_cast('bigint').isNull(), F.col('value'))
+            .otherwise(F.col('event._corrupt_record')),
+        ).withField(fields.EVENT_TIME, event_time)
+        for name in (fields.USER_ID, fields.PRODUCT_ID, fields.CATEGORY_ID):
+            event = event.withField(name, F.col(f'event.{name}').try_cast('bigint'))
+        parsed = parsed.withColumn('event', event)
+    return parsed.withColumn('event_ms', F.unix_millis(F.try_to_timestamp(event_time)))
 
 
 def decision_message(args, batch_id, row, event, status, reason, session_id=None):
@@ -194,7 +264,7 @@ def spark_decision_worker(spark, args, root):
     contract_file = root / 'decision-spark-contract.json'
     if (root / 'decision.sqlite').exists() or (root / 'decision-checkpoint').exists():
         raise ValueError('Switching decision backends requires a new run ID and fresh topics/checkpoints')
-    contract = [args.topic, args.refined_topic, args.allowed_lateness_seconds, 'keyed-prior-batch-clock-v3-session']
+    contract = [args.topic, args.refined_topic, args.allowed_lateness_seconds, 'keyed-prior-batch-clock-v4-session-contract']
     try:
         with contract_file.open('x', encoding='utf-8') as stream:
             json.dump(contract, stream)
@@ -210,7 +280,7 @@ def spark_decision_worker(spark, args, root):
         spark.conf.set('spark.sql.streaming.stateStore.rocksdb.changelogCheckpointing.enabled', 'true')
     # This query reads the watermark as a clock and does not register Spark timers.
     spark.conf.set('spark.sql.streaming.noDataMicroBatches.enabled', 'false')
-    classified = decisions(decision_input(spark, args), args.allowed_lateness_seconds * 1000)
+    classified = decisions(decision_input(spark, args, include_web=True), args.allowed_lateness_seconds * 1000, args.run_id)
     producer = decision_producer(args)
 
     def process(batch, batch_id):
@@ -271,6 +341,7 @@ def decision_worker(spark, args, root):
             for row in rows:
                 event = row.event.asDict() if row.event else {}
                 reason = rejection_reason(event, row.event_ms, row.key)
+                event.pop('_corrupt_record', None)
                 status = INVALID
                 if reason is None:
                     # Compare only with records already seen in this partition's stable offset order.
@@ -307,7 +378,7 @@ def decision_worker(spark, args, root):
 
 
 def refined_rows(frame):
-    schema = (', '.join(f'{name} {kind.simpleString()}' for name, kind in EVENT_FIELDS.items())
+    schema = (', '.join(f'{name} {kind.simpleString()}' for name, kind in {**EVENT_FIELDS, **ACTION_MESSAGE_FIELDS}.items())
               + ', run_id string, decision_batch long, status string, rejection_reason string, session_id string'
               + ', origin_partition int, origin_offset long'
               + ', origin_broker_ms long, decision_ms long')
