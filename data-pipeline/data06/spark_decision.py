@@ -58,20 +58,22 @@ class ActionDecisions(StatefulProcessor):
         pass
 
 
-def decision_metadata(event, event_ms, key, run_id, partition, offset):
+def decision_metadata(event, event_ms, key, run_id, partition, offset, wire_fields, live):
     payload = event.asDict() if event is not None else {}
-    reason = rejection_reason(payload, event_ms, key, run_id)
+    reason = rejection_reason(payload, event_ms, key, run_id,
+                              wire_fields=set(wire_fields or ()), live=live)
     group = ('invalid', partition, offset) if reason else decision_group(payload, key, run_id)
     return json.dumps(group, separators=(',', ':')), event_ms if reason is None else None, reason
 
 
-def decisions(frame, allowed_lateness_ms, run_id):
+def decisions(frame, allowed_lateness_ms, run_id, live=False):
     # Only valid events advance the clock. ProcessingTime keeps late inputs visible.
     metadata = F.udf(decision_metadata, StructType([
         StructField('group', StringType()), StructField('valid_time_ms', LongType()),
         StructField('rejection_reason', StringType()),
     ]))
-    timed = frame.withColumn('metadata', metadata('event', 'event_ms', 'key', F.lit(run_id), 'partition', 'offset'))
+    timed = frame.withColumn('metadata', metadata('event', 'event_ms', 'key', F.lit(run_id), 'partition', 'offset',
+                                                    F.json_object_keys('value'), F.lit(live)))
     timed = (timed.withColumn('clock_time', F.timestamp_millis('metadata.valid_time_ms'))
              .withColumn('decision_group', F.col('metadata.group'))
              .withColumn('input_rejection', F.col('metadata.rejection_reason')).drop('metadata'))

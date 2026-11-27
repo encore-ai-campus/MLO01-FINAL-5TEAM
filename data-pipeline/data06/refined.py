@@ -17,7 +17,7 @@ import event_schema as fields
 from pyspark.sql import Window, functions as F
 from pyspark.sql.types import LongType, StringType, StructField, StructType
 
-from stream import EVENT_FIELDS, EVENT_SCHEMA, spark_session
+from stream import EVENT_FIELDS, EVENT_SCHEMA, KAFKA_JSON_TYPES, spark_session
 from redis_contract import parse_time, user_key, utc_string
 from recent_actions import ACTION_TYPES, ConversionRequests, apply_list_event, session_keys
 
@@ -82,17 +82,34 @@ ACTION_MESSAGE_FIELDS = {
     'raw_session_id': StringType(), 'replay_run_id': StringType(), 'sequence': LongType(),
     'event_time_utc': StringType(), 'replay_time_utc': StringType(),
     'source_file': StringType(), 'source_row': LongType(),
+    'schema_version': StringType(), 'produced_at_utc': StringType(),
 }
-WEB_EVENT_ID = re.compile(r'web:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}', re.IGNORECASE)
+INTERACTIVE_SOURCES = ('web', 'loadtest')
+UUID_PATTERN = re.compile(r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}', re.IGNORECASE)
+INTERACTIVE_REQUIRED = frozenset(('schema_version', 'source', 'replay_run_id', 'event_id', 'raw_session_id',
+                                  'event_time_utc', 'replay_time_utc', 'produced_at_utc', 'sequence',
+                                  'user_id', 'product_id', 'category_id', 'price', 'event_type'))
 
 
 def action_source(event):
-    return 'web' if event.get('source') == 'web' else 'replay'
+    source = event.get('source')
+    return source if source in INTERACTIVE_SOURCES else 'replay'
+
+
+def valid_uuid(value):
+    return bool(UUID_PATTERN.fullmatch(value)) and bool(value.replace('-', '').strip('0'))
+
+
+def action_time_valid(value):
+    try:
+        return parse_time(value).utcoffset() == timedelta(0)
+    except (AttributeError, ValueError):
+        return False
 
 
 def decision_group(event, key, run_id):
     source = action_source(event)
-    if source == 'web':
+    if source in INTERACTIVE_SOURCES:
         return source, event.get('replay_run_id'), event['raw_session_id']
     # Replay keys use user_id. The source data's session value can be shared by users.
     return source, event.get('replay_run_id') or run_id, key
@@ -104,7 +121,7 @@ def replay_position(event):
 
 
 def decision_order(event, event_ms, partition, offset):
-    if action_source(event) == 'web':
+    if action_source(event) in INTERACTIVE_SOURCES:
         return event_ms, '', event['sequence'], partition, offset
     source_file, source_row = replay_position(event)
     return event_ms, source_file, source_row, partition, offset
@@ -149,27 +166,48 @@ def classify(db, event, event_ms, prior_max, allowed_lateness_ms):
     return 'accepted'
 
 
-def rejection_reason(event, event_ms, key, run_id=None):
+def rejection_reason(event, event_ms, key, run_id=None, *, wire_fields=None, live=False):
     if not event or event.get('_corrupt_record') is not None:
         return 'malformed_payload'
-    if action_source(event) == 'web':
-        if run_id is None or event.get('replay_run_id') not in (None, run_id):
+    source = action_source(event)
+    replay_id = event.get('replay_run_id')
+    if source in INTERACTIVE_SOURCES:
+        if run_id is None or (replay_id is not None if live else replay_id != run_id):
             return 'invalid_replay_run'
-        raw_session = event.get('raw_session_id')
-        if not raw_session or not raw_session.startswith('web-') or len(raw_session) == 4 or key != raw_session:
-            return 'invalid_kafka_key'
-        if not WEB_EVENT_ID.fullmatch(event.get(fields.EVENT_ID) or ''):
-            return 'invalid_event_id'
-        if event.get('sequence') is None or event['sequence'] < 1:
+        if wire_fields is None or INTERACTIVE_REQUIRED - wire_fields or event.get('schema_version') != '1':
+            return 'invalid_message_fields'
+        raw_session = event.get('raw_session_id') or ''
+        event_id = event.get(fields.EVENT_ID) or ''
+        user_id = event.get(fields.USER_ID)
+        sequence = event.get('sequence')
+        if sequence is None or sequence < (1 if source == 'web' else 0):
             return 'invalid_source_or_sequence'
-        if event_ms is None:
+        if key != raw_session or event.get('source_file') is not None or event.get('source_row') is not None:
+            return 'invalid_kafka_key'
+        if source == 'web':
+            if not raw_session.startswith('web-') or not valid_uuid(raw_session[4:]):
+                return 'invalid_kafka_key'
+            if not event_id.startswith('web:') or not valid_uuid(event_id[4:]):
+                return 'invalid_event_id'
+            if user_id is not None and not re.fullmatch(r'web-[0-9]+', user_id):
+                return 'invalid_user_id'
+        else:
+            match = re.fullmatch(r'load:([A-Za-z0-9_.-]+):([0-9]+)', event_id)
+            if not match or int(match[2]) != sequence:
+                return 'invalid_event_id'
+            if not re.fullmatch(rf'load-{re.escape(match[1])}-[0-9]+', raw_session):
+                return 'invalid_kafka_key'
+            if not user_id or not re.fullmatch(r'load-[A-Za-z0-9_.-]+', user_id):
+                return 'invalid_user_id'
+        if event_ms is None or not all(action_time_valid(event.get(name))
+                                       for name in ('event_time_utc', 'replay_time_utc', 'produced_at_utc')):
             return 'invalid_event_time'
-        if event.get(fields.PRODUCT_ID) is None:
+        if event[fields.PRODUCT_ID] is None:
             return 'missing_product_id'
         if event.get(fields.EVENT_TYPE) not in ('view', 'cart', 'purchase'):
             return 'invalid_event_type'
         return None
-    if run_id is not None and event.get('replay_run_id') not in (None, run_id):
+    if live or (run_id is not None and replay_id not in (None, run_id)):
         return 'invalid_replay_run'
     source_file, source_row = replay_position(event)
     if not source_file or source_row is None or source_row < 0:
@@ -178,7 +216,7 @@ def rejection_reason(event, event_ms, key, run_id=None):
         return 'invalid_event_id'
     if event_ms is None:
         return 'invalid_event_time'
-    if event[fields.USER_ID] is None or event[fields.PRODUCT_ID] is None:
+    if not re.fullmatch(r'[0-9]+', str(event[fields.USER_ID])) or event[fields.PRODUCT_ID] is None:
         return 'missing_user_or_product_id'
     if event[fields.EVENT_TYPE] not in ('view', 'cart', 'purchase'):
         return 'invalid_event_type'
@@ -194,7 +232,8 @@ def decision_input(spark, args, include_web=False):
         # The team wire format sends IDs as decimal strings. Parse both the old numeric
         # replay format and the new string format without losing bigint precision.
         message_fields = {**EVENT_FIELDS, **ACTION_MESSAGE_FIELDS}
-        for name in (fields.USER_ID, fields.PRODUCT_ID, fields.CATEGORY_ID):
+        message_fields[fields.USER_ID] = KAFKA_JSON_TYPES[fields.KAFKA_USER_ID_TYPE]
+        for name in (fields.PRODUCT_ID, fields.CATEGORY_ID):
             message_fields[name] = StringType()
         schema = StructType([StructField(name, kind) for name, kind in message_fields.items()])
     schema = StructType([*schema.fields, StructField('_corrupt_record', StringType())])
@@ -203,13 +242,8 @@ def decision_input(spark, args, include_web=False):
     event_time = F.col(f'event.{fields.EVENT_TIME}')
     if include_web:
         event_time = F.coalesce(F.col('event.event_time_utc'), event_time)
-        user_id = F.col(f'event.{fields.USER_ID}')
-        event = F.col('event').withField(
-            '_corrupt_record',
-            F.when(user_id.isNotNull() & user_id.try_cast('bigint').isNull(), F.col('value'))
-            .otherwise(F.col('event._corrupt_record')),
-        ).withField(fields.EVENT_TIME, event_time)
-        for name in (fields.USER_ID, fields.PRODUCT_ID, fields.CATEGORY_ID):
+        event = F.col('event').withField(fields.EVENT_TIME, event_time)
+        for name in (fields.PRODUCT_ID, fields.CATEGORY_ID):
             event = event.withField(name, F.col(f'event.{name}').try_cast('bigint'))
         parsed = parsed.withColumn('event', event)
     return parsed.withColumn('event_ms', F.unix_millis(F.try_to_timestamp(event_time)))
@@ -264,7 +298,7 @@ def spark_decision_worker(spark, args, root):
     contract_file = root / 'decision-spark-contract.json'
     if (root / 'decision.sqlite').exists() or (root / 'decision-checkpoint').exists():
         raise ValueError('Switching decision backends requires a new run ID and fresh topics/checkpoints')
-    contract = [args.topic, args.refined_topic, args.allowed_lateness_seconds, 'keyed-prior-batch-clock-v4-session-contract']
+    contract = [args.topic, args.refined_topic, args.allowed_lateness_seconds, 'keyed-prior-batch-clock-v6-interactive', args.live_action_clock]
     try:
         with contract_file.open('x', encoding='utf-8') as stream:
             json.dump(contract, stream)
@@ -280,7 +314,8 @@ def spark_decision_worker(spark, args, root):
         spark.conf.set('spark.sql.streaming.stateStore.rocksdb.changelogCheckpointing.enabled', 'true')
     # This query reads the watermark as a clock and does not register Spark timers.
     spark.conf.set('spark.sql.streaming.noDataMicroBatches.enabled', 'false')
-    classified = decisions(decision_input(spark, args, include_web=True), args.allowed_lateness_seconds * 1000, args.run_id)
+    classified = decisions(decision_input(spark, args, include_web=True), args.allowed_lateness_seconds * 1000, args.run_id,
+                           getattr(args, 'live_action_clock', False))
     producer = decision_producer(args)
 
     def process(batch, batch_id):
@@ -378,7 +413,8 @@ def decision_worker(spark, args, root):
 
 
 def refined_rows(frame):
-    schema = (', '.join(f'{name} {kind.simpleString()}' for name, kind in {**EVENT_FIELDS, **ACTION_MESSAGE_FIELDS}.items())
+    schema = (', '.join(f'{name} {kind.simpleString()}' for name, kind in {**EVENT_FIELDS, **ACTION_MESSAGE_FIELDS,
+                                   fields.USER_ID: KAFKA_JSON_TYPES[fields.KAFKA_USER_ID_TYPE]}.items())
               + ', run_id string, decision_batch long, status string, rejection_reason string, session_id string'
               + ', origin_partition int, origin_offset long'
               + ', origin_broker_ms long, decision_ms long')
@@ -438,8 +474,11 @@ def next_user_state(previous, event):
     features = previous.get('features', {})
     now = parse_time(getattr(event, fields.EVENT_TIME))
     event_id = getattr(event, fields.EVENT_ID)
-    source_file = getattr(event, fields.SOURCE_FILE)
-    source_row = getattr(event, fields.SOURCE_ROW)
+    is_interactive = getattr(event, 'source', None) in INTERACTIVE_SOURCES
+    source_file = (getattr(event, 'source_file', None) or getattr(event, fields.SOURCE_FILE))
+    source_row = (event.sequence if is_interactive else getattr(event, 'source_row', None))
+    if source_row is None:
+        source_row = getattr(event, fields.SOURCE_ROW)
     event_type = getattr(event, fields.EVENT_TYPE)
     product_id = getattr(event, fields.PRODUCT_ID)
     last = parse_time(previous['event_time']) if previous else None
@@ -454,9 +493,15 @@ def next_user_state(previous, event):
     if previous and 'history' not in previous:
         raise ValueError('Redis state uses the old schema; rebuild from Delta before resuming')
     history = previous.get('history', [])
-    if history and (now, source_file, source_row) <= (
-            last, history[-1]['source'], history[-1]['event_seq']):
-        raise ValueError('Accepted event overlaps or precedes the Redis seed')
+    if history:
+        prior = history[-1]
+        order = (now, source_file, source_row)
+        previous_order = (last, prior['source'], prior['event_seq'])
+        same_order_has_later_offset = (previous.get('origin_offset') is not None
+                                       and event.origin_offset is not None
+                                       and event.origin_offset > int(previous['origin_offset']))
+        if order < previous_order or (order == previous_order and not same_order_has_later_offset):
+            raise ValueError('Accepted event overlaps or precedes the Redis seed')
     history_cutoff = now - timedelta(days=7)
     history = [row for row in history if row['session_start_event_id'] == session_start or
                parse_time(row['event_time']) >= history_cutoff]
@@ -494,10 +539,53 @@ def redis_input_state(raw, event):
     return previous
 
 
+def redis_message_key(event):
+    if getattr(event, 'source', None) in INTERACTIVE_SOURCES:
+        return event.raw_session_id
+    return str(getattr(event, fields.USER_ID))
+
+
+CURRENT_SESSION_POSITION = """
+local previous = redis.call('HGET', KEYS[1], 'processed_position')
+if previous then
+    local prefix, offset = string.match(previous, '^(.*:)(%d+)$')
+    if prefix ~= ARGV[1] then
+        return redis.error_reply('Current session changed run or partition')
+    end
+    if #offset > #ARGV[2] or (#offset == #ARGV[2] and offset >= ARGV[2]) then return 0 end
+end
+if ARGV[4] ~= '' then
+    local session_changed = redis.call('HGET', KEYS[1], 'session_id') ~= ARGV[4]
+    redis.call('HSET', KEYS[1], 'session_id', ARGV[4], 'last_accepted_at', ARGV[5],
+               'feature_revision', ARGV[1] .. ARGV[2])
+    if session_changed or ARGV[6] == '1' then redis.call('HSET', KEYS[1], 'purchased', ARGV[6]) end
+end
+redis.call('HSET', KEYS[1], 'processed_position', ARGV[1] .. ARGV[2])
+if not previous or ARGV[4] ~= '' then redis.call('EXPIRE', KEYS[1], ARGV[3]) end
+return 1
+"""
+
+
+def record_session_positions(client, run_id, events, ttl):
+    if not events:
+        return
+    update = client.register_script(CURRENT_SESSION_POSITION)
+    with client.pipeline(transaction=False) as pipe:
+        for event in sorted(events, key=lambda row: (row.origin_partition, row.origin_offset)):
+            session_id = event.session_id if event.status == 'accepted' else ''
+            if event.status == 'accepted' and not session_id:
+                continue  # SQLite comparison records do not assign a serving session.
+            at = getattr(event, fields.EVENT_TIME) if session_id else ''
+            update(keys=[f'feat:current_session:{redis_message_key(event)}'],
+                   args=[f'{run_id}:{event.origin_partition}:', event.origin_offset, ttl,
+                         session_id or '', at, int(getattr(event, fields.EVENT_TYPE) == 'purchase')], client=pipe)
+        pipe.execute()
+
+
 def apply_recent_actions(client, apply, run_id, events, publish_latency, requests):
     applied = skipped = 0
     for event in events:
-        key = user_key(run_id, getattr(event, fields.USER_ID))
+        key = user_key(run_id, redis_message_key(event))
         raw = client.get(key)
         previous = redis_input_state(raw, event)
         if previous is None:
@@ -543,14 +631,14 @@ def apply_redis_pipeline(client, apply, run_id, events, publish_latency, request
         return apply_recent_actions(client, apply, run_id, events, publish_latency, requests)
     if not events:
         return 0, 0
-    keys = list(dict.fromkeys(user_key(run_id, getattr(event, fields.USER_ID)) for event in events))
+    keys = list(dict.fromkeys(user_key(run_id, redis_message_key(event)) for event in events))
     current = dict(zip(keys, client.mget(keys)))
     lookup_ended = now_ms()
     pending = []
     skipped = 0
     with client.pipeline(transaction=False) as pipe:
         for event in events:
-            key = user_key(run_id, getattr(event, fields.USER_ID))
+            key = user_key(run_id, redis_message_key(event))
             raw = current[key]
             previous = redis_input_state(raw, event)
             if previous is None:
@@ -594,8 +682,9 @@ def redis_worker(spark, args, root):
             skipped, applied, boundary_skipped = 0, 0, 0
             entered = now_ms()
             started = perf_counter()
-            accepted = sorted(batch.where("status = 'accepted'").collect(),
-                              key=lambda event: (event.refined_partition, event.refined_offset))
+            rows = sorted(batch.where("status IN ('accepted', 'late', 'duplicate')").collect(),
+                          key=lambda event: (event.refined_partition, event.refined_offset))
+            accepted = [event for event in rows if event.status == 'accepted']
             collected = perf_counter()
             read_ended = now_ms()
             profile = []
@@ -621,7 +710,7 @@ def redis_worker(spark, args, root):
                     raise RuntimeError('INJECTED_REDIS_AFTER_FIRST')
             else:
                 for event in eligible:
-                    key = user_key(args.run_id, event[fields.USER_ID])
+                    key = user_key(args.run_id, redis_message_key(event))
                     raw = client.get(key)
                     lookup_ended = now_ms()
                     previous = redis_input_state(raw, event)
@@ -640,6 +729,10 @@ def redis_worker(spark, args, root):
                                 json.loads(payload)]), flush=True)
                     if args.fail == 'redis-after-first' and applied == 1:
                         raise RuntimeError('INJECTED_REDIS_AFTER_FIRST')
+            record_session_positions(client, args.run_id, [
+                event for event in rows
+                if not recovery or event.refined_offset >= recovery['boundary'][str(event.refined_partition)]
+            ], args.session_safety_ttl_seconds or 300)
             stats = {'batch': batch_id, 'applied': applied, 'skipped': skipped}
             if recovery:
                 stats['boundary_skipped'] = boundary_skipped
@@ -740,6 +833,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--stage', required=True, choices=('decision', 'redis', 'delta', 'inspect', 'bundled'))
     parser.add_argument('--run-id', required=True)
+    parser.add_argument('--live-action-clock', action='store_true',
+                        help='Accept only web/loadtest without a replay ID. Use separate topics and state.')
     parser.add_argument('--topic', required=True)
     parser.add_argument('--refined-topic', required=True)
     parser.add_argument('--kafka', default='kafka:9092')
@@ -784,6 +879,8 @@ def main():
         parser.error('19-2 requires a separate prediction topic, calculator, version and positive safety TTL on Redis')
     if not 0 <= args.replay_prediction_permille <= 1000:
         parser.error('Replay prediction sampling must be between 0 and 1000 permille')
+    if args.live_action_clock and args.decision_state_store != 'spark':
+        parser.error('Live action clock requires Spark state')
     if args.decision_state_store not in ('spark', 'sqlite'):
         parser.error('DATA06_DECISION_STATE_STORE must be spark or sqlite')
     if not re.fullmatch(r'[a-z0-9-]+', args.run_id) or args.topic == args.refined_topic:
