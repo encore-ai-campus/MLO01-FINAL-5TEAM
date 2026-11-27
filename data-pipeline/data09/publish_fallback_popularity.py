@@ -20,11 +20,14 @@ def digest(body):
 
 def verify_list(body):
     document = json.loads(body)
-    if set(document) != {'format_version', 'list_version', 'replay_run_id', 'data_cutoff_utc',
-                         'generated_at_utc', 'window_days', 'overall', 'by_category'}:
+    if set(document) != {'format_version', 'list_version', 'replay_run_id', 'publish_request_id',
+                         'data_cutoff_utc', 'generated_at_utc', 'window_days', 'overall', 'by_category'}:
         raise ValueError('Invalid fallback list fields')
     if document['format_version'] != 1 or document['window_days'] != 7:
         raise ValueError('Unknown format version or window size')
+    request_id = document['publish_request_id']
+    if not isinstance(request_id, str) or not request_id.strip():
+        raise ValueError('Invalid publication request ID')
     run = document['replay_run_id']
     if re.fullmatch(r'[A-Za-z0-9_-]+', run) is None:
         raise ValueError('Invalid replay run ID')

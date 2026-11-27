@@ -101,7 +101,8 @@ def build(spark, *, cutoff, processed_through, october, replay_run_id=None, revi
     return {
         'format_version': 1, 'data_cutoff_utc': utc(cutoff),
         'list_version': f'pop-{cutoff:%Y%m%dT%H%M%SZ}-r{revision}',
-        'replay_run_id': replay_run_id, 'generated_at_utc': utc(generated_at or datetime.now(timezone.utc)),
+        'replay_run_id': replay_run_id, 'publish_request_id': 'daily',
+        'generated_at_utc': utc(generated_at or datetime.now(timezone.utc)),
         'window_days': 7, 'overall': overall, 'by_category': categories,
     }
 
