@@ -24,30 +24,50 @@ def utc_datetime(value):
     return parsed
 
 
-def sequence_inputs(actions, *, event_time, sequence):
+def sequence_inputs(actions, *, event_time, sequence, event_id=None):
     """Calculate inputs from one to five actions of the same session."""
     if not isinstance(actions, list) or not 1 <= len(actions) <= HISTORY_SIZE:
         raise ValueError('Provide one to five recent actions')
     if type(sequence) is not int or sequence < 0:
         raise ValueError('Invalid request sequence number')
+    if not all(isinstance(action, dict) for action in actions):
+        raise ValueError('Each action must be an object')
     current_key = (utc_datetime(event_time), sequence)
+    has_session_order = any('seq' in action for action in actions)
     observed = {}
+    event_ids = set()
     for action in actions:
-        if not isinstance(action, dict):
-            raise ValueError('Each action must be an object')
         product = action.get('product_id')
         kind = action.get('event_type')
         order = action.get('sequence')
         if (not isinstance(product, str) or not product.strip()
                 or kind not in ACTIONS or type(order) is not int or order < 0):
             raise ValueError('Invalid product, action type or sequence number')
-        key = (utc_datetime(action.get('event_time_utc')), order)
-        if key in observed:
+        source_key = (utc_datetime(action.get('event_time_utc')), order)
+        action_id = action.get('event_id')
+        position = source_key
+        if has_session_order:
+            position = action.get('seq')
+            if type(position) is not int or position < 1:
+                raise ValueError('Every action must have a positive integer session seq')
+            if not isinstance(action_id, str) or not action_id.strip() or action_id in event_ids:
+                raise ValueError('Recent actions must have distinct nonempty event IDs')
+            event_ids.add(action_id)
+        if position in observed:
             raise ValueError('Recent actions must have distinct ordering keys')
-        observed[key] = _Action(kind, product)
-    if max(observed) != current_key:
+        observed[position] = (_Action(kind, product), source_key, action_id)
+    positions = sorted(observed)
+    ordered = [observed[position] for position in positions]
+    if has_session_order:
+        if positions[-1] - positions[0] != len(positions) - 1:
+            raise ValueError('Recent actions must have consecutive session seq values')
+        if any(previous[1] > following[1] for previous, following in zip(ordered, ordered[1:])):
+            raise ValueError('Session action order conflicts with the source order')
+        if not isinstance(event_id, str) or not event_id.strip() or ordered[-1][2] != event_id:
+            raise ValueError('Recent actions must end at the requested event ID')
+    if ordered[-1][1] != current_key:
         raise ValueError('Recent actions must end at the requested action')
-    return describe_actions([observed[key] for key in sorted(observed)])
+    return describe_actions([action for action, _, _ in ordered])
 
 
 def describe_actions(history):

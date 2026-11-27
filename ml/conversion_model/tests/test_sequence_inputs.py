@@ -13,6 +13,11 @@ def action(product, kind, order, when=AT):
     return {'product_id': product, 'event_type': kind, 'sequence': order, 'event_time_utc': when}
 
 
+def tied_team_actions():
+    return [{**action('B', 'view', 15), 'seq': 11, 'event_id': 'E1'},
+            {**action('D', 'cart', 15), 'seq': 12, 'event_id': 'E2'}]
+
+
 class SequenceInputTests(unittest.TestCase):
     def test_agreed_example_matches_training_and_api_inputs(self):
         first = action('B', 'view', 1, '2019-10-31T23:59:00Z')
@@ -73,3 +78,27 @@ class SequenceInputTests(unittest.TestCase):
                         [action('A', 'view', -1)]):
             with self.subTest(actions=actions), self.assertRaises(ValueError):
                 sequence_inputs(actions, event_time=AT, sequence=1)
+
+    def test_team_order_distinguishes_actions_with_equal_time_and_source_sequence(self):
+        actions = tied_team_actions()
+        request = {'event_time': AT, 'sequence': 15, 'event_id': 'E2'}
+        expected = dict(zip(FEATURE_NAMES, (2, 0, 1., 0, 'view_cart_other', 'AB'), strict=True))
+        self.assertEqual(sequence_inputs(actions[::-1], **request), expected)
+        self.assertEqual(model_sequence_inputs(actions, **request), expected)
+
+    def test_invalid_team_identity_or_order_does_not_fall_back_to_legacy(self):
+        first, last = tied_team_actions()
+        for changes, event_id, problem in (
+            ({}, 'E1', 'requested event ID'),
+            ({}, None, 'requested event ID'),
+            ({'event_id': 'E1'}, 'E2', 'distinct nonempty event IDs'),
+            ({'seq': 11}, 'E2', 'distinct ordering keys'),
+            ({'seq': 13}, 'E2', 'consecutive session seq'),
+            ({'seq': None}, 'E2', 'positive integer session seq'),
+            ({'sequence': 14}, 'E2', 'source order'),
+        ):
+            with self.subTest(changes=changes, event_id=event_id), self.assertRaisesRegex(ValueError, problem):
+                sequence_inputs([first, {**last, **changes}], event_time=AT, sequence=15, event_id=event_id)
+        last = {k: v for k, v in last.items() if k != 'seq'}
+        with self.assertRaisesRegex(ValueError, 'positive integer session seq'):
+            sequence_inputs([first, last], event_time=AT, sequence=15, event_id='E2')
